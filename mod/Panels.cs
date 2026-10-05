@@ -579,11 +579,12 @@ public class Panels
 
     // ---------- Bag ----------
 
-    // Slots span the full width and are taller than wide: bigger targets, same 12-column rows as the game.
-    const int SlotW = 50, SlotH = 60;
+    // Slots fill the card's inner width (inside its 8px border) and are taller than wide: bigger targets,
+    // same 12-column rows as the game.
+    const int SlotW = 49, SlotH = 60, SlotX = 16;
     static readonly Rectangle TrashRect = new(8, 270, 140, 76), StackRect = new(156, 270, 456, 76);
 
-    static Rectangle SlotRect(int i) => new(10 + i % Cols * SlotW, 66 + i / Cols * SlotH + (i >= Cols ? 8 : 0), SlotW, SlotH);
+    static Rectangle SlotRect(int i) => new(SlotX + i % Cols * SlotW, 66 + i / Cols * SlotH + (i >= Cols ? 8 : 0), SlotW, SlotH);
 
     // Short-lived feedback line ("Stored 12 items", "Bag is full"), cleared after a few seconds.
     string status;
@@ -605,8 +606,8 @@ public class Panels
     /// <summary>The open chest (or other storage) grid, when the top menu is an ItemGrabMenu.</summary>
     static InventoryMenu Storage => (Game1.activeClickableMenu as ItemGrabMenu)?.ItemsToGrabMenu;
 
-    static Rectangle StoreRect(int i) => new(10 + i % Cols * SlotW, 92 + i / Cols * StoreSlotH, SlotW, StoreSlotH);
-    static Rectangle StoreBagRect(int i) => new(10 + i % Cols * SlotW, 294 + i / Cols * StoreSlotH, SlotW, StoreSlotH);
+    static Rectangle StoreRect(int i) => new(SlotX + i % Cols * SlotW, 92 + i / Cols * StoreSlotH, SlotW, StoreSlotH);
+    static Rectangle StoreBagRect(int i) => new(SlotX + i % Cols * SlotW, 294 + i / Cols * StoreSlotH, SlotW, StoreSlotH);
     static readonly Rectangle FillRect = new(8, 466, 298, 62), OrganizeRect = new(314, 466, 298, 62);
     static readonly Rectangle StorePrev = new(500, 62, 40, 24), StoreNext = new(560, 62, 40, 24);
 
@@ -715,7 +716,7 @@ public class Panels
         Icon(b, Game1.mouseCursors, new Rectangle(564 + lvl, 102, 18, 26), 22, 282, 2);
         b.Draw(Game1.mouseCursors, new Vector2(52, 302), new Rectangle(564 + lvl, 129, 18, 10), Color.White,
             overTrash ? -0.6f : 0f, new Vector2(16, 10), 2f, SpriteEffects.None, 0);
-        Text(b, "Trash", new Vector2(70, 296), Faint);
+        Text(b, "Trash", new Vector2(64, 296), Faint);
 
         // Quick stack: top up stacks that already exist in this location's chests.
         Card(b, StackRect.X, StackRect.Y, StackRect.Width, StackRect.Height);
