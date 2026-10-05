@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Runtime.InteropServices;
 using Android.App;
 using Android.Graphics;
 using Android.Graphics.Drawables;
@@ -25,15 +26,17 @@ public class ModEntry : Mod
     Activity activity;
     Presentation window;
     ImageView view;
-    RenderTarget2D target;
+    readonly RenderTarget2D[] targets = new RenderTarget2D[2];
     SpriteBatch batch;
     Panels panels;
     readonly byte[] bytes = new byte[W * H * 4];
     readonly Bitmap[] bitmaps = new Bitmap[2];
+    readonly BitmapDrawable[] drawables = new BitmapDrawable[2];
+    Java.Nio.ByteBuffer pixels;
     readonly ConcurrentQueue<(int x, int y)> taps = new();
     int flip, frames;
-    bool redrawNow;
-    long costTicks;
+    int pendingRedraws;
+    long drawTicks, readTicks, copyTicks;
     readonly Stopwatch timer = new();
 
     public override void Entry(IModHelper helper)
@@ -87,24 +90,29 @@ public class ModEntry : Mod
         while (taps.TryDequeue(out var tap))
         {
             panels.Tap(tap.x, tap.y);
-            redrawNow = true;
+            // Two renders: readback lags one frame behind the draw.
+            pendingRedraws = 2;
         }
 
-        if (!redrawNow && !e.IsMultipleOf((uint)panels.RedrawInterval)) return;
-        redrawNow = false;
+        if (pendingRedraws == 0 && !e.IsMultipleOf((uint)panels.RedrawInterval)) return;
+        if (pendingRedraws > 0) pendingRedraws--;
         Render();
     }
 
     void Render()
     {
-        timer.Restart();
         var gd = Game1.graphics.GraphicsDevice;
-        target ??= new RenderTarget2D(gd, W, H);
         batch ??= new SpriteBatch(gd);
+        // Draw into one target while reading back the other: the previous frame is already
+        // finished on the GPU, so the readback doesn't stall on this frame's draws.
+        flip ^= 1;
+        var draw = targets[flip] ??= new RenderTarget2D(gd, W, H);
+        var read = targets[flip ^ 1] ??= new RenderTarget2D(gd, W, H);
 
+        timer.Restart();
         var oldTargets = gd.GetRenderTargets();
         var oldViewport = gd.Viewport;
-        gd.SetRenderTarget(target);
+        gd.SetRenderTarget(draw);
         gd.Clear(new XColor(0, 0, 0));
         batch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp);
         try { panels.Draw(batch); }
@@ -112,23 +120,36 @@ public class ModEntry : Mod
         batch.End();
         gd.SetRenderTargets(oldTargets);
         gd.Viewport = oldViewport;
+        long drawn = timer.Elapsed.Ticks;
 
-        target.GetData(bytes);
-        flip ^= 1;
+        read.GetData(bytes);
+        long readDone = timer.Elapsed.Ticks;
+
+        // Copy straight into a direct buffer; ByteBuffer.Wrap would allocate a new Java array each time.
+        pixels ??= Java.Nio.ByteBuffer.AllocateDirect(bytes.Length);
+        Marshal.Copy(bytes, 0, Android.Runtime.JNIEnv.GetDirectBufferAddress(pixels.Handle), bytes.Length);
+        pixels.Rewind();
         var bmp = bitmaps[flip] ??= Bitmap.CreateBitmap(W, H, Bitmap.Config.Argb8888);
-        bmp.CopyPixelsFromBuffer(Java.Nio.ByteBuffer.Wrap(bytes));
+        bmp.CopyPixelsFromBuffer(pixels);
+        var d = drawables[flip] ??= NewDrawable(bmp);
         activity.RunOnUiThread(() =>
         {
-            var d = new BitmapDrawable(activity.Resources, bmp);
-            d.SetFilterBitmap(false);
             view.SetImageDrawable(d);
+            view.Invalidate();
         });
 
-        costTicks += timer.Elapsed.Ticks;
-        if (++frames % 120 == 0)
+        drawTicks += drawn; readTicks += readDone - drawn; copyTicks += timer.Elapsed.Ticks - readDone;
+        if (++frames % 300 == 0)
         {
-            Monitor.Log($"Bottom screen: {costTicks / frames / 10000.0:0.00} ms per update", LogLevel.Trace);
-            costTicks = frames = 0;
+            Monitor.Log($"Bottom screen ms/update: draw {drawTicks / frames / 1e4:0.00}, read {readTicks / frames / 1e4:0.00}, copy {copyTicks / frames / 1e4:0.00}", LogLevel.Trace);
+            drawTicks = readTicks = copyTicks = frames = 0;
         }
+    }
+
+    BitmapDrawable NewDrawable(Bitmap bmp)
+    {
+        var d = new BitmapDrawable(activity.Resources, bmp);
+        d.SetFilterBitmap(false);
+        return d;
     }
 }

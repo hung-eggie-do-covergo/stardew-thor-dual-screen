@@ -33,7 +33,7 @@ public class Panels
     string lovedFor;
     List<string> lovedBy = new(), likedBy = new(), bundles = new();
 
-    public int RedrawInterval => Showing switch { Tab.Aim => 6, Tab.Bag => 15, _ => 30 };
+    public int RedrawInterval => Showing switch { Tab.Aim => 2, Tab.Bag => 15, _ => 30 };
 
     /// <summary>Menu whose inventory the Bag panel drives, e.g. a chest or a shop.</summary>
     static InventoryMenu OpenInventory => Game1.activeClickableMenu switch
@@ -435,6 +435,9 @@ public class Panels
 
     // World pixels at the panel's top-left in the last Aim draw; maps taps back to tiles.
     xTile.Dimensions.Rectangle aimView;
+    // 1.5x keeps whole screen pixels per art pixel (64-px tiles become 96 px) while making tiles bigger to tap.
+    const float AimZoom = 1.5f;
+    static readonly Matrix AimScale = Matrix.CreateScale(AimZoom);
     Vector2? aimTile;
 
     /// <summary>Draws the world around the player with the game's own map and object code,
@@ -443,7 +446,8 @@ public class Panels
     {
         var loc = Game1.currentLocation;
         var p = Game1.player.StandingPixel;
-        aimView = new xTile.Dimensions.Rectangle(p.X - ModEntry.W / 2, p.Y - (ModEntry.H + TabH) / 2, ModEntry.W, ModEntry.H);
+        int w0 = (int)(ModEntry.W / AimZoom), h0 = (int)(ModEntry.H / AimZoom);
+        aimView = new xTile.Dimensions.Rectangle(p.X - w0 / 2, p.Y - (int)((ModEntry.H + TabH) / 2 / AimZoom), w0, h0);
         var old = Game1.viewport;
         b.End();
         // Some game draws (e.g. the swinging tool) go through Game1.spriteBatch directly, so
@@ -454,18 +458,18 @@ public class Panels
             Game1.viewport = aimView;
             w.GraphicsDevice.Clear(Color.Black);
             Game1.mapDisplayDevice.BeginScene(w);
-            w.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp);
+            w.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp, null, null, null, AimScale);
             foreach (var l in loc.backgroundLayers) l.Key.Draw(Game1.mapDisplayDevice, aimView, xTile.Dimensions.Location.Origin, false, 4, -1f);
             w.End();
-            w.Begin(SpriteSortMode.FrontToBack, BlendState.AlphaBlend, SamplerState.PointClamp);
+            w.Begin(SpriteSortMode.FrontToBack, BlendState.AlphaBlend, SamplerState.PointClamp, null, null, null, AimScale);
             loc.drawFloorDecorations(w);
             w.End();
-            w.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp);
+            w.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp, null, null, null, AimScale);
             for (int j = 0; j < loc.buildingLayers.Count; j++)
                 loc.buildingLayers[j].Key.Draw(Game1.mapDisplayDevice, aimView, xTile.Dimensions.Location.Origin, false, 4,
                     loc.buildingLayers.Count > 1 ? 0.1f * j / (loc.buildingLayers.Count - 1) : 0f);
             w.End();
-            w.Begin(SpriteSortMode.FrontToBack, BlendState.AlphaBlend, SamplerState.PointClamp);
+            w.Begin(SpriteSortMode.FrontToBack, BlendState.AlphaBlend, SamplerState.PointClamp, null, null, null, AimScale);
             loc.draw(w);
             for (int k = 0; k < loc.frontLayers.Count; k++)
                 loc.frontLayers[k].Key.Draw(Game1.mapDisplayDevice, aimView, xTile.Dimensions.Location.Origin, false, 4,
@@ -474,7 +478,7 @@ public class Panels
             w.End();
             foreach (var l in loc.alwaysFrontLayers)
             {
-                w.Begin(SpriteSortMode.Texture, BlendState.AlphaBlend, SamplerState.PointClamp);
+                w.Begin(SpriteSortMode.Texture, BlendState.AlphaBlend, SamplerState.PointClamp, null, null, null, AimScale);
                 l.Key.Draw(Game1.mapDisplayDevice, aimView, xTile.Dimensions.Location.Origin, false, 4, -1f);
                 w.End();
             }
@@ -493,26 +497,41 @@ public class Panels
         }
 
         // Tile grid, then the targeted tile.
-        var grid = Color.Black * 0.15f;
-        for (int x = -aimView.X % 64 + (aimView.X < 0 ? -64 : 0); x < ModEntry.W; x += 64)
-            b.Draw(Game1.staminaRect, new Rectangle(x, TabH, 1, ModEntry.H - TabH), grid);
-        for (int y = -aimView.Y % 64 + (aimView.Y < 0 ? -64 : 0); y < ModEntry.H; y += 64)
-            b.Draw(Game1.staminaRect, new Rectangle(0, y, ModEntry.W, 1), grid);
+        float tile = 64 * AimZoom;
+        // Dark line plus a light one beside it, so the grid reads on both grass and dark floors.
+        Color dark = Color.Black * 0.45f, light = Color.White * 0.3f;
+        for (float x = -Mod(aimView.X, 64) * AimZoom; x < ModEntry.W; x += tile)
+        {
+            b.Draw(Game1.staminaRect, new Rectangle((int)x, TabH, 1, ModEntry.H - TabH), dark);
+            b.Draw(Game1.staminaRect, new Rectangle((int)x + 1, TabH, 1, ModEntry.H - TabH), light);
+        }
+        for (float y = -Mod(aimView.Y, 64) * AimZoom; y < ModEntry.H; y += tile)
+        {
+            b.Draw(Game1.staminaRect, new Rectangle(0, (int)y, ModEntry.W, 1), dark);
+            b.Draw(Game1.staminaRect, new Rectangle(0, (int)y + 1, ModEntry.W, 1), light);
+        }
 
         if (aimTile is Vector2 t)
         {
-            var r = new Rectangle((int)t.X * 64 - aimView.X, (int)t.Y * 64 - aimView.Y, 64, 64);
+            var r = new Rectangle((int)((t.X * 64 - aimView.X) * AimZoom), (int)((t.Y * 64 - aimView.Y) * AimZoom), (int)tile, (int)tile);
             var held = Game1.player.ActiveObject;
             Color c = held != null && held.isPlaceable()
-                ? (Utility.playerCanPlaceItemHere(loc, held, r.X + aimView.X + 32, r.Y + aimView.Y + 32, Game1.player) ? Color.Lime : Color.Red)
+                ? (Utility.playerCanPlaceItemHere(loc, held, (int)t.X * 64 + 32, (int)t.Y * 64 + 32, Game1.player) ? Color.Lime : Color.Red)
                 : Color.Yellow;
-            b.Draw(Game1.staminaRect, r, c * 0.35f);
+            b.Draw(Game1.staminaRect, r, c * 0.3f);
+            const int edge = 3;
+            b.Draw(Game1.staminaRect, new Rectangle(r.X, r.Y, r.Width, edge), c);
+            b.Draw(Game1.staminaRect, new Rectangle(r.X, r.Bottom - edge, r.Width, edge), c);
+            b.Draw(Game1.staminaRect, new Rectangle(r.X, r.Y, edge, r.Height), c);
+            b.Draw(Game1.staminaRect, new Rectangle(r.Right - edge, r.Y, edge, r.Height), c);
         }
     }
 
+    static int Mod(int a, int m) => (a % m + m) % m;
+
     void TapAim(int x, int y)
     {
-        var tile = new Vector2((x + aimView.X) / 64, (y + aimView.Y) / 64);
+        var tile = new Vector2((int)Math.Floor((x / AimZoom + aimView.X) / 64), (int)Math.Floor((y / AimZoom + aimView.Y) / 64));
         int px = (int)tile.X * 64 + 32, py = (int)tile.Y * 64 + 32;
         var loc = Game1.currentLocation;
         var held = Game1.player.ActiveObject;
