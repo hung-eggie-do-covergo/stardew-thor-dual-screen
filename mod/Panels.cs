@@ -653,9 +653,9 @@ public class Panels
     /// <summary>The open chest (or other storage) grid, when the top menu is an ItemGrabMenu.</summary>
     static InventoryMenu Storage => (Game1.activeClickableMenu as ItemGrabMenu)?.ItemsToGrabMenu;
 
-    static Rectangle StoreRect(int i) => new(SlotX + i % Cols * SlotW, 92 + i / Cols * StoreSlotH, SlotW, StoreSlotH);
-    static Rectangle StoreBagRect(int i) => new(SlotX + i % Cols * SlotW, 294 + i / Cols * StoreSlotH, SlotW, StoreSlotH);
-    static readonly Rectangle FillRect = new(8, 466, 298, 62), OrganizeRect = new(314, 466, 298, 62);
+    static Rectangle StoreRect(int i) => new(SlotX + i % Cols * SlotW, 94 + i / Cols * StoreSlotH, SlotW, StoreSlotH);
+    static Rectangle StoreBagRect(int i) => new(SlotX + i % Cols * SlotW, 300 + i / Cols * StoreSlotH, SlotW, StoreSlotH);
+    static readonly Rectangle FillRect = new(8, 472, 298, 56), OrganizeRect = new(314, 472, 298, 56);
     static readonly Rectangle StorePrev = new(500, 62, 40, 24), StoreNext = new(560, 62, 40, 24);
 
     void DrawStorage(SpriteBatch b, InventoryMenu store)
@@ -664,7 +664,7 @@ public class Panels
         int pages = Math.Max(1, (store.capacity + StorePage - 1) / StorePage);
         storePage = Math.Min(storePage, pages - 1);
 
-        Card(b, 8, 58, 604, 198);
+        Card(b, 8, 58, 604, 202);
         Text(b, "Chest - tap to take", new Vector2(22, 64), Faint);
         if (pages > 1)
         {
@@ -685,8 +685,8 @@ public class Panels
             }
         }
 
-        Card(b, 8, 260, 604, 198);
-        Text(b, "Bag - tap to store", new Vector2(22, 266), Faint);
+        Card(b, 8, 264, 604, 204);
+        Text(b, "Bag - tap to store", new Vector2(22, 270), Faint);
         var items = Game1.player.Items;
         for (int i = 0; i < 36; i++)
         {
@@ -702,11 +702,11 @@ public class Panels
 
         // The chest menu's own side buttons, made big.
         Card(b, FillRect.X, FillRect.Y, FillRect.Width, FillRect.Height);
-        Icon(b, Game1.mouseCursors, new Rectangle(103, 469, 16, 16), FillRect.X + 12, FillRect.Y + 15, 2);
-        Text(b, "Add to stacks", new Vector2(FillRect.X + 54, FillRect.Y + 18));
+        Icon(b, Game1.mouseCursors, new Rectangle(103, 469, 16, 16), FillRect.X + 12, FillRect.Y + 12, 2);
+        Text(b, "Add to stacks", new Vector2(FillRect.X + 54, FillRect.Y + 15));
         Card(b, OrganizeRect.X, OrganizeRect.Y, OrganizeRect.Width, OrganizeRect.Height);
-        Icon(b, Game1.mouseCursors, new Rectangle(162, 440, 16, 16), OrganizeRect.X + 12, OrganizeRect.Y + 15, 2);
-        Text(b, "Organize chest", new Vector2(OrganizeRect.X + 54, OrganizeRect.Y + 18));
+        Icon(b, Game1.mouseCursors, new Rectangle(162, 440, 16, 16), OrganizeRect.X + 12, OrganizeRect.Y + 12, 2);
+        Text(b, "Organize chest", new Vector2(OrganizeRect.X + 54, OrganizeRect.Y + 15));
     }
 
     void TapStorage(InventoryMenu store, int x, int y)
@@ -735,9 +735,13 @@ public class Panels
     void DrawBag(SpriteBatch b)
     {
         if (Game1.activeClickableMenu is ItemGrabMenu { shippingBin: true })
-        { DrawMenuBag(b, "Shipping bin", "Tap an item to ship it. It's sold overnight.", Game1.getFarm().lastItemShipped); return; }
-        if (Game1.activeClickableMenu is GeodeMenu)
-        { DrawMenuBag(b, "Clint - geodes", "Tap a geode to crack it open.", null); return; }
+        { DrawMenuBag(b, "Shipping bin", "Tap an item to ship it. It's sold overnight.", Game1.getFarm().lastItemShipped, "Last shipped", null); return; }
+        if (Game1.activeClickableMenu is GeodeMenu geode)
+        {
+            DrawMenuBag(b, "Clint - geodes", "Tap a geode to crack it open.", geode.geodeTreasure, "Last found",
+                $"25g each. You have {Utility.getNumberWithCommas(Game1.player.Money)}g");
+            return;
+        }
         if (Storage is InventoryMenu store) { DrawStorage(b, store); return; }
         var menu = OpenInventory;
         Card(b, 8, 58, 604, 204);
@@ -1100,9 +1104,9 @@ public class Panels
     int sellPick = -1, sellAmount;
     static readonly Rectangle SellMinus = new(296, 270, 56, 52), SellPlus = new(436, 270, 56, 52), SellMax = new(500, 270, 100, 52),
         SellButton = new(296, 328, 304, 58);
-    static readonly Rectangle[] BuyRects = { new(296, 330, 96, 56), new(400, 330, 96, 56), new(504, 330, 96, 56) };
+    static readonly Rectangle[] BuyRects = { new(272, 330, 106, 56), new(384, 330, 106, 56), new(496, 330, 106, 56) };
     static readonly int[] BuyCounts = { 1, 5, 25 };
-    static Rectangle ShopBagRect(int c) => new(SlotX + c * SlotW, 432, SlotW, SlotH);
+    static Rectangle ShopBagRect(int c) => new(SlotX + c * SlotW, 436, SlotW, SlotH - 2);
     static readonly Rectangle ShopRowPrev = new(460, 404, 60, 28), ShopRowNext = new(540, 404, 60, 28);
 
     void DrawShop(SpriteBatch b)
@@ -1137,7 +1141,8 @@ public class Panels
                 var r = BuyRects[i];
                 bool afford = money >= stock.Price * BuyCounts[i];
                 IClickableMenu.drawTextureBox(b, Game1.mouseCursors, BoxSrc, r.X, r.Y, r.Width, r.Height, afford ? Color.White : new Color(200, 160, 120), 2f, false);
-                Text(b, $"Buy {BuyCounts[i]}", new Vector2(r.X + 14, r.Y + 16), afford ? Ink : Faint);
+                string label = $"Buy {BuyCounts[i]}";
+                Text(b, label, new Vector2(r.X + (r.Width - Game1.smallFont.MeasureString(label).X) / 2, r.Y + 16), afford ? Ink : Faint);
             }
         }
 
@@ -1276,21 +1281,27 @@ public class Panels
 
     // ---------- Bag: shipping bin and geode layouts ----------
 
-    void DrawMenuBag(SpriteBatch b, string title, string hint, Item shown)
+    void DrawMenuBag(SpriteBatch b, string title, string hint, Item shown, string shownLabel, string detail)
     {
-        Card(b, 8, 58, 604, 198);
+        Card(b, 8, 58, 604, 202);
         Text(b, title, new Vector2(22, 64), Faint);
+        float y = 96;
+        Wrapped(b, CurrentStatus ?? hint, 22, ref y, 576, Ink, 2);
+        if (detail != null)
+        {
+            Icon(b, Game1.mouseCursors, Coin, 22, (int)y + 8, 2);
+            Text(b, detail, new Vector2(44, y + 4), Faint);
+        }
         if (shown != null)
         {
-            SlotFrame(b, 22, 96, 64);
-            Item(b, shown, 22, 96, 64);
-            Text(b, shown.DisplayName, new Vector2(98, 112));
+            Text(b, shownLabel, new Vector2(22, 178), Faint);
+            SlotFrame(b, 22, 202, 48);
+            Item(b, shown, 22, 202, 48);
+            Text(b, shown.DisplayName, new Vector2(82, 214));
         }
-        float y = shown != null ? 176 : 100;
-        Wrapped(b, CurrentStatus ?? hint, 22, ref y, 576, Ink, 3);
 
-        Card(b, 8, 260, 604, 198);
-        Text(b, "Bag", new Vector2(22, 266), Faint);
+        Card(b, 8, 264, 604, 204);
+        Text(b, "Bag", new Vector2(22, 270), Faint);
         var menu = (MenuWithInventory)Game1.activeClickableMenu;
         var items = Game1.player.Items;
         for (int i = 0; i < 36; i++)
