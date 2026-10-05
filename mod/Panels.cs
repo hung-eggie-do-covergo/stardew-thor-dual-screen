@@ -582,7 +582,7 @@ public class Panels
     // Slots fill the card's inner width (inside its 8px border) and are taller than wide: bigger targets,
     // same 12-column rows as the game.
     const int SlotW = 49, SlotH = 60, SlotX = 16;
-    static readonly Rectangle TrashRect = new(8, 270, 140, 76), StackRect = new(156, 270, 456, 76);
+    static readonly Rectangle TrashRect = new(8, 270, 176, 76), StackRect = new(192, 270, 420, 76);
 
     static Rectangle SlotRect(int i) => new(SlotX + i % Cols * SlotW, 66 + i / Cols * SlotH + (i >= Cols ? 8 : 0), SlotW, SlotH);
 
@@ -713,16 +713,17 @@ public class Panels
         Card(b, TrashRect.X, TrashRect.Y, TrashRect.Width, TrashRect.Height);
         if (overTrash) b.Draw(Game1.staminaRect, new Rectangle(TrashRect.X + 6, TrashRect.Y + 6, TrashRect.Width - 12, TrashRect.Height - 12), Color.Red * 0.25f);
         int lvl = Game1.player.trashCanLevel * 18;
-        Icon(b, Game1.mouseCursors, new Rectangle(564 + lvl, 102, 18, 26), 22, 282, 2);
-        b.Draw(Game1.mouseCursors, new Vector2(52, 302), new Rectangle(564 + lvl, 129, 18, 10), Color.White,
+        int tx = TrashRect.X, ty = TrashRect.Y;
+        Icon(b, Game1.mouseCursors, new Rectangle(564 + lvl, 102, 18, 26), tx + 16, ty + 12, 2);
+        b.Draw(Game1.mouseCursors, new Vector2(tx + 46, ty + 32), new Rectangle(564 + lvl, 129, 18, 10), Color.White,
             overTrash ? -0.6f : 0f, new Vector2(16, 10), 2f, SpriteEffects.None, 0);
-        Text(b, "Trash", new Vector2(64, 296), Faint);
+        Text(b, "Trash", new Vector2(tx + 72, ty + 26), Faint);
 
         // Quick stack: top up stacks that already exist in this location's chests.
         Card(b, StackRect.X, StackRect.Y, StackRect.Width, StackRect.Height);
-        Item(b, chest ??= ItemRegistry.Create("(BC)130"), 170, 280, 56);
-        Text(b, "Stack to chests", new Vector2(236, 282));
-        Text(b, CurrentStatus ?? "Tops up stacks in chests", new Vector2(236, 308), Faint);
+        Item(b, chest ??= ItemRegistry.Create("(BC)130"), StackRect.X + 14, StackRect.Y + 10, 56);
+        Text(b, "Stack to chests", new Vector2(StackRect.X + 80, StackRect.Y + 12));
+        Text(b, CurrentStatus ?? "Tops up stacks in chests", new Vector2(StackRect.X + 80, StackRect.Y + 38), Faint);
 
         // Item card: what you're holding, or how taps work while a chest or shop is open.
         Card(b, 8, 354, 604, 174);
