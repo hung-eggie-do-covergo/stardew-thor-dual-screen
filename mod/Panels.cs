@@ -1446,7 +1446,7 @@ public class Panels
                 if (SaveDown.Contains(x, y)) { lm.currentItemIndex = Math.Min(Math.Max(0, lm.MenuSlots.Count - LoadGameMenu.itemsPerPage), lm.currentItemIndex + 1); return; }
                 for (int k = 0; k < LoadGameMenu.itemsPerPage && k < lm.slotButtons.Count; k++)
                     if (SaveSlot(k).Contains(x, y) && lm.currentItemIndex + k < lm.MenuSlots.Count)
-                    { lm.receiveLeftClick(lm.slotButtons[k].bounds.Center.X, lm.slotButtons[k].bounds.Center.Y); return; }
+                    { tm.receiveLeftClick(lm.slotButtons[k].bounds.Center.X, lm.slotButtons[k].bounds.Center.Y); return; }
                 if (TitleBack.Contains(x, y)) ClickBack(tm);
                 break;
             case not null when TitleBack.Contains(x, y):
@@ -1457,7 +1457,8 @@ public class Panels
 
     static void ClickBack(TitleMenu tm)
     {
-        if (tm.backButton != null) tm.receiveLeftClick(tm.backButton.bounds.Center.X, tm.backButton.bounds.Center.Y);
+        // Same guard the title menu uses for its own Back button.
+        if (TitleMenu.subMenu?.readyToClose() ?? false) tm.backButtonPressed();
     }
 
     // ---------- Aim ----------
