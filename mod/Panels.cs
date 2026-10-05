@@ -15,16 +15,19 @@ namespace DualScreen;
 /// <summary>The bottom-screen panels, drawn with the game's own UI sprites on a fixed 620x540 layout.</summary>
 public class Panels
 {
-    enum Tab { Today, Nearby, Bag, Aim }
+    enum Tab { Today, Gifts, Bag, Aim }
 
-    // Game menu tab sprites (Cursors.png): calendar, social heart, backpack, crafting hammer.
-    static readonly Rectangle[] TabIcons = { new(48, 384, 16, 16), new(32, 368, 16, 16), new(0, 368, 16, 16), new(64, 368, 16, 16) };
-    const int TabSize = 48, TabStep = 52, TabH = 52, Slot = 48, Cols = 12;
+    static readonly string[] TabNames = { "Today", "Gifts", "Bag", "Aim" };
+    // Tab buttons fill the header row: about 24x10 mm each on the Thor's bottom screen.
+    const int TabH = 64, TabW = 151, TabGap = 4, Slot = 48, Cols = 12;
+    // Content cards are laid out from y=58; shift them down to sit under the header.
+    const int ContentShift = TabH + 6 - 58;
 
     // Cursors.png sprites.
     static readonly Rectangle BoxSrc = new(384, 373, 18, 18), Dice = new(381, 361, 10, 10), Coin = new(193, 373, 9, 10),
         HeartFull = new(211, 428, 7, 6), HeartEmpty = new(218, 428, 7, 6), Gift = new(229, 410, 14, 14),
-        CheckOff = new(227, 425, 9, 9), CheckOn = new(236, 425, 9, 9);
+        CheckOff = new(227, 425, 9, 9), CheckOn = new(236, 425, 9, 9),
+        Calendar = new(48, 384, 16, 16), Backpack = new(4, 371, 8, 10);
 
     static readonly Color Ink = new(86, 22, 12);
     static readonly Color Paper = new(255, 214, 147);
@@ -62,11 +65,11 @@ public class Panels
         if (Idle) return;
         if (y < TabH)
         {
-            int i = (x - 8) / TabStep;
-            if (OpenInventory == null && x >= 8 && i < TabIcons.Length) tab = (Tab)i;
+            int i = (x - TabGap) / (TabW + TabGap);
+            if (OpenInventory == null && i < TabNames.Length) tab = (Tab)i;
             return;
         }
-        if (Showing == Tab.Bag) TapBag(x, y);
+        if (Showing == Tab.Bag) TapBag(x, y - ContentShift);
         else if (Showing == Tab.Aim) TapAim(x, y);
     }
 
@@ -75,12 +78,16 @@ public class Panels
         if (Showing is not Tab shown) { DrawLogo(b); return; }
 
         b.Draw(Game1.staminaRect, new Rectangle(0, 0, ModEntry.W, ModEntry.H), Paper);
-        switch (shown)
+        if (shown == Tab.Aim) DrawAim(b);
+        else
         {
-            case Tab.Today: DrawToday(b); break;
-            case Tab.Nearby: DrawNearby(b); break;
-            case Tab.Bag: DrawBag(b); break;
-            case Tab.Aim: DrawAim(b); break;
+            b.End();
+            b.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp, null, null, null, Matrix.CreateTranslation(0, ContentShift, 0));
+            if (shown == Tab.Today) DrawToday(b);
+            else if (shown == Tab.Gifts) DrawNearby(b);
+            else DrawBag(b);
+            b.End();
+            b.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp);
         }
         DrawHeader(b, shown);
     }
@@ -94,23 +101,33 @@ public class Panels
         b.Draw(logo, new Vector2((ModEntry.W - src.Width) / 2, (ModEntry.H - src.Height) / 2), src, Color.White * 0.6f);
     }
 
-    /// <summary>Game-style tabs on the left; date, weather, time and money on the right.</summary>
+    /// <summary>Four labelled tab buttons across the top; the open one is lit and drops onto the page.</summary>
     static void DrawHeader(SpriteBatch b, Tab shown)
     {
         b.Draw(Game1.staminaRect, new Rectangle(0, 0, ModEntry.W, TabH), new Color(214, 147, 86));
-        for (int i = 0; i < TabIcons.Length; i++)
-        {
-            // Like the game menu: the open tab drops down to meet the page.
-            int y = (Tab)i == shown ? 6 : -2;
-            Icon(b, Game1.mouseCursors, TabIcons[i], 8 + i * TabStep, y, 3);
-        }
         b.Draw(Game1.staminaRect, new Rectangle(0, TabH - 2, ModEntry.W, 2), Ink);
+        for (int i = 0; i < TabNames.Length; i++)
+        {
+            bool on = (Tab)i == shown;
+            int x = TabGap + i * (TabW + TabGap), y = on ? 6 : 2;
+            IClickableMenu.drawTextureBox(b, Game1.mouseCursors, BoxSrc, x, y, TabW, TabH - 6, on ? Color.White : new Color(200, 160, 120), 2f, false);
+            TabIcon(b, (Tab)i, x + 14, y + 12);
+            Text(b, TabNames[i], new Vector2(x + 62, y + 16), on ? Ink : Faint);
+        }
+    }
 
-        Text(b, $"{Utility.getSeasonNameFromNumber(Game1.seasonIndex)} {Game1.dayOfMonth}", new Vector2(226, 14));
-        Text(b, Game1.getTimeOfDayString(Game1.timeOfDay), new Vector2(338, 14), Faint);
-        WeatherIcon(b, Game1.weatherIcon, 440, 14, 3);
-        Icon(b, Game1.mouseCursors, Coin, 490, 13, 3);
-        Text(b, Game1.player.Money.ToString("N0"), new Vector2(520, 14));
+    /// <summary>A 36x36 icon that says what the tab is for.</summary>
+    static Item hoe;
+
+    static void TabIcon(SpriteBatch b, Tab t, int x, int y)
+    {
+        switch (t)
+        {
+            case Tab.Today: WeatherIcon(b, Game1.weatherIcon, x, y + 6, 3); break;
+            case Tab.Gifts: Icon(b, Game1.mouseCursors, Gift, x - 2, y - 2, 3); break;
+            case Tab.Bag: Icon(b, Game1.mouseCursors, Backpack, x + 6, y - 2, 3.5f); break;
+            case Tab.Aim: Item(b, hoe ??= ItemRegistry.Create("(T)Hoe"), x - 4, y - 4, 44); break;
+        }
     }
 
     static void Icon(SpriteBatch b, Texture2D tex, Rectangle src, int x, int y, float scale) =>
@@ -212,7 +229,7 @@ public class Panels
         }
 
         // Row 3: birthdays this week, one fixed cell each.
-        Card(b, 8, 282, 604, 250);
+        Card(b, 8, 282, 604, 250 - ContentShift);
         Text(b, "Birthdays this week", new Vector2(22, 290), Faint);
         var soon = Birthdays().Take(4).ToList();
         if (soon.Count == 0) Text(b, "None", new Vector2(22, 320));
@@ -303,7 +320,7 @@ public class Panels
             if (day > 28) break;
             string when = i == 0 ? "Today" : i == 1 ? "Tomorrow" : "In 2 days";
             if (festivals.TryGetValue($"{Game1.currentSeason}{day}", out var name))
-                yield return ((b, x, y) => Icon(b, Game1.mouseCursors, TabIcons[0], x, y - 2, 2), $"{when}: {name}");
+                yield return ((b, x, y) => Icon(b, Game1.mouseCursors, Calendar, x, y - 2, 2), $"{when}: {name}");
             if (day % 7 is 5 or 0)
                 yield return ((b, x, y) => Icon(b, Game1.mouseCursors, Coin, x + 4, y, 3), $"{when}: Traveling cart");
             if (i == 0 && day % 7 == 0)
@@ -331,7 +348,7 @@ public class Panels
     void DrawNearby(SpriteBatch b)
     {
         // Left card: the held item and who wants it.
-        Card(b, 8, 58, 296, 474);
+        Card(b, 8, 58, 296, 474 - ContentShift);
         var held = Game1.player.ActiveObject;
         if (held == null || held.bigCraftable.Value)
             Text(b, "Hold an item to see\nwho loves it.", new Vector2(22, 70), Faint);
@@ -356,7 +373,7 @@ public class Panels
         }
 
         // Right card: the nearest villager.
-        Card(b, 316, 58, 296, 474);
+        Card(b, 316, 58, 296, 474 - ContentShift);
         var npc = NearestVillager(8);
         if (npc == null) { Text(b, "Nobody nearby.", new Vector2(330, 70), Faint); return; }
 
@@ -383,7 +400,7 @@ public class Panels
 
         Text(b, "Loves", new Vector2(330, 184), Faint);
         int i = 0;
-        foreach (var item in Loves(npc).Take(30))
+        foreach (var item in Loves(npc).Take(24))
         {
             int x = 330 + i % 6 * 46, y = 210 + i / 6 * 46;
             SlotFrame(b, x, y, 44);
@@ -397,7 +414,7 @@ public class Panels
     {
         Icon(b, Game1.mouseCursors, icon, 22, y + 6, 2);
         Text(b, label, new Vector2(42, y), Faint);
-        if (npcs.Count == 0) { Text(b, "Nobody", new Vector2(130, y), Faint); return; }
+        if (npcs.Count == 0) { Text(b, "Nobody", new Vector2(22, y + 30), Faint); return; }
         for (int i = 0; i < Math.Min(npcs.Count, 16); i++)
             Head(b, npcs[i], 22 + i % 8 * 34, y + 26 + i / 8 * 34);
         if (npcs.Count > 16) Text(b, $"+{npcs.Count - 16}", new Vector2(240, y), Faint);
@@ -507,7 +524,7 @@ public class Panels
         }
 
         // Item card: what you're holding, or how taps work while a chest or shop is open.
-        Card(b, 8, 242, 604, 290);
+        Card(b, 8, 242, 604, 290 - ContentShift);
         if (menu != null)
         {
             Text(b, Game1.activeClickableMenu is ShopMenu ? "Tap an item to sell it." : "Tap an item to move it into the chest.", new Vector2(22, 256), Faint);
