@@ -465,10 +465,19 @@ public class Panels
                 loc.buildingLayers[j].Key.Draw(Game1.mapDisplayDevice, aimView, xTile.Dimensions.Location.Origin, false, 4,
                     loc.buildingLayers.Count > 1 ? 0.1f * j / (loc.buildingLayers.Count - 1) : 0f);
             w.End();
-            // Front layers skipped on purpose: nothing hides the tile you're aiming at.
             w.Begin(SpriteSortMode.FrontToBack, BlendState.AlphaBlend, SamplerState.PointClamp);
             loc.draw(w);
+            for (int k = 0; k < loc.frontLayers.Count; k++)
+                loc.frontLayers[k].Key.Draw(Game1.mapDisplayDevice, aimView, xTile.Dimensions.Location.Origin, false, 4,
+                    64f + (loc.frontLayers.Count > 1 ? 0.1f * k / (loc.frontLayers.Count - 1) : 0f));
+            loc.drawAboveFrontLayer(w);
             w.End();
+            foreach (var l in loc.alwaysFrontLayers)
+            {
+                w.Begin(SpriteSortMode.Texture, BlendState.AlphaBlend, SamplerState.PointClamp);
+                l.Key.Draw(Game1.mapDisplayDevice, aimView, xTile.Dimensions.Location.Origin, false, 4, -1f);
+                w.End();
+            }
         }
         catch (Exception ex)
         {
