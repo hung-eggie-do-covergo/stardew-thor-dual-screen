@@ -15,8 +15,8 @@ namespace DualScreen;
 /// <summary>The three bottom-screen panels, drawn with the game's own art at 620x540.</summary>
 public class Panels
 {
-    enum Tab { Today, Nearby, Bag }
-    static readonly string[] TabNames = { "Today", "Nearby", "Bag" };
+    enum Tab { Today, Nearby, Bag, Aim }
+    static readonly string[] TabNames = { "Today", "Nearby", "Bag", "Aim" };
 
     const int TabH = 44, Pad = 12, Slot = 48, Cols = 12;
     static readonly Color Ink = new(86, 22, 12);
@@ -25,12 +25,15 @@ public class Panels
 
     Tab tab = Tab.Today;
     Texture2D logo;
+    readonly IMonitor monitor;
+
+    public Panels(IMonitor monitor) => this.monitor = monitor;
 
     // "Who loves this" scans every villager, so only redo it when the held item changes.
     string lovedFor;
     List<string> lovedBy = new(), likedBy = new(), bundles = new();
 
-    public int RedrawInterval => Showing == Tab.Bag ? 15 : 30;
+    public int RedrawInterval => Showing switch { Tab.Aim => 6, Tab.Bag => 15, _ => 30 };
 
     /// <summary>Menu whose inventory the Bag panel drives, e.g. a chest or a shop.</summary>
     static InventoryMenu OpenInventory => Game1.activeClickableMenu switch
@@ -55,6 +58,7 @@ public class Panels
             return;
         }
         if (Showing == Tab.Bag) TapBag(x, y);
+        else if (Showing == Tab.Aim) TapAim(x, y);
     }
 
     public void Draw(SpriteBatch b)
@@ -62,14 +66,15 @@ public class Panels
         if (Showing is not Tab shown) { DrawLogo(b); return; }
 
         b.Draw(Game1.staminaRect, new Rectangle(0, 0, ModEntry.W, ModEntry.H), Paper);
-        DrawTabs(b, shown);
         var area = new Rectangle(Pad, TabH + Pad, ModEntry.W - Pad * 2, ModEntry.H - TabH - Pad * 2);
         switch (shown)
         {
             case Tab.Today: DrawToday(b, area); break;
             case Tab.Nearby: DrawNearby(b, area); break;
             case Tab.Bag: DrawBag(b, area); break;
+            case Tab.Aim: DrawAim(b); break;
         }
+        DrawTabs(b, shown);
     }
 
     // ---------- shared ----------
@@ -424,5 +429,98 @@ public class Panels
             Game1.player.shiftToolbar(true);
         int at = Game1.player.Items.IndexOf(item);
         if (at is >= 0 and < Cols) Game1.player.CurrentToolIndex = at;
+    }
+
+    // ---------- Aim ----------
+
+    // World pixels at the panel's top-left in the last Aim draw; maps taps back to tiles.
+    xTile.Dimensions.Rectangle aimView;
+    Vector2? aimTile;
+
+    /// <summary>Draws the world around the player with the game's own map and object code,
+    /// by pointing Game1.viewport at our panel for the duration.</summary>
+    void DrawAim(SpriteBatch b)
+    {
+        var loc = Game1.currentLocation;
+        var p = Game1.player.StandingPixel;
+        aimView = new xTile.Dimensions.Rectangle(p.X - ModEntry.W / 2, p.Y - (ModEntry.H + TabH) / 2, ModEntry.W, ModEntry.H);
+        var old = Game1.viewport;
+        b.End();
+        // Some game draws (e.g. the swinging tool) go through Game1.spriteBatch directly, so
+        // draw the world with it; it's idle here because we run between frames.
+        var w = Game1.spriteBatch;
+        try
+        {
+            Game1.viewport = aimView;
+            w.GraphicsDevice.Clear(Color.Black);
+            Game1.mapDisplayDevice.BeginScene(w);
+            w.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp);
+            foreach (var l in loc.backgroundLayers) l.Key.Draw(Game1.mapDisplayDevice, aimView, xTile.Dimensions.Location.Origin, false, 4, -1f);
+            w.End();
+            w.Begin(SpriteSortMode.FrontToBack, BlendState.AlphaBlend, SamplerState.PointClamp);
+            loc.drawFloorDecorations(w);
+            w.End();
+            w.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp);
+            for (int j = 0; j < loc.buildingLayers.Count; j++)
+                loc.buildingLayers[j].Key.Draw(Game1.mapDisplayDevice, aimView, xTile.Dimensions.Location.Origin, false, 4,
+                    loc.buildingLayers.Count > 1 ? 0.1f * j / (loc.buildingLayers.Count - 1) : 0f);
+            w.End();
+            // Front layers skipped on purpose: nothing hides the tile you're aiming at.
+            w.Begin(SpriteSortMode.FrontToBack, BlendState.AlphaBlend, SamplerState.PointClamp);
+            loc.draw(w);
+            w.End();
+        }
+        catch (Exception ex)
+        {
+            // A pass threw mid-batch; close it so the panel can still draw its overlay.
+            try { w.End(); } catch (InvalidOperationException) { }
+            monitor.LogOnce($"Aim world draw failed: {ex}", LogLevel.Error);
+        }
+        finally
+        {
+            Game1.viewport = old;
+            Game1.mapDisplayDevice.BeginScene(Game1.spriteBatch);
+            b.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp);
+        }
+
+        // Tile grid, then the targeted tile.
+        var grid = Color.Black * 0.15f;
+        for (int x = -aimView.X % 64 + (aimView.X < 0 ? -64 : 0); x < ModEntry.W; x += 64)
+            b.Draw(Game1.staminaRect, new Rectangle(x, TabH, 1, ModEntry.H - TabH), grid);
+        for (int y = -aimView.Y % 64 + (aimView.Y < 0 ? -64 : 0); y < ModEntry.H; y += 64)
+            b.Draw(Game1.staminaRect, new Rectangle(0, y, ModEntry.W, 1), grid);
+
+        if (aimTile is Vector2 t)
+        {
+            var r = new Rectangle((int)t.X * 64 - aimView.X, (int)t.Y * 64 - aimView.Y, 64, 64);
+            var held = Game1.player.ActiveObject;
+            Color c = held != null && held.isPlaceable()
+                ? (Utility.playerCanPlaceItemHere(loc, held, r.X + aimView.X + 32, r.Y + aimView.Y + 32, Game1.player) ? Color.Lime : Color.Red)
+                : Color.Yellow;
+            b.Draw(Game1.staminaRect, r, c * 0.35f);
+        }
+    }
+
+    void TapAim(int x, int y)
+    {
+        var tile = new Vector2((x + aimView.X) / 64, (y + aimView.Y) / 64);
+        int px = (int)tile.X * 64 + 32, py = (int)tile.Y * 64 + 32;
+        var loc = Game1.currentLocation;
+        var held = Game1.player.ActiveObject;
+
+        // First tap picks the tile; tapping the same tile again acts on it.
+        if (aimTile != tile) { aimTile = tile; return; }
+
+        if (held != null && held.isPlaceable())
+        {
+            Utility.tryToPlaceItem(loc, held, px, py);
+            return;
+        }
+        if (Game1.player.CurrentTool != null && !Game1.player.UsingTool && Game1.player.CanMove)
+        {
+            // Tools hit the tile you face, so turn toward the target first, like the pad would.
+            Game1.player.FacingDirection = Game1.player.getGeneralDirectionTowards(new Vector2(px, py));
+            Game1.player.BeginUsingTool();
+        }
     }
 }

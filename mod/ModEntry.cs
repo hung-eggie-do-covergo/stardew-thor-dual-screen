@@ -38,7 +38,7 @@ public class ModEntry : Mod
 
     public override void Entry(IModHelper helper)
     {
-        panels = new Panels();
+        panels = new Panels(Monitor);
         helper.Events.GameLoop.GameLaunched += (_, _) => OpenWindow();
         helper.Events.GameLoop.UpdateTicked += OnUpdateTicked;
     }
