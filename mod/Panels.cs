@@ -1329,8 +1329,8 @@ public class Panels
 
     // ---------- Title screen ----------
 
-    // Title buttons at 2x (148x116 each), in a row along the bottom like the top screen.
-    static Rectangle TitleButton(int i) => new(6 + i * 152, ModEntry.H - 128, 148, 116);
+    // Title buttons at 3x (222x174 each) in a centered 2x2 grid; the top screen keeps only the logo.
+    static Rectangle TitleButton(int i) => new((ModEntry.W - 456) / 2 + i % 2 * 234, (ModEntry.H - 360) / 2 + i / 2 * 186, 222, 174);
     static Rectangle SaveSlot(int i) => new(8, 16 + i * 104, 604, 96);
     static readonly Rectangle TitleBack = new(8, 452, 200, 76), SaveUp = new(520, 452, 44, 76), SaveDown = new(568, 452, 44, 76);
 
@@ -1348,14 +1348,19 @@ public class Panels
         b.Draw(tm.cloudsTexture, new Vector2(w - 122 * z, h - 153 * z), new Rectangle(390, 543, 122, 153), Color.White, 0, Vector2.Zero, z, SpriteEffects.None, 0);
     }
 
+    /// <summary>Runs every tick: the buttons live on the bottom screen, so the top shows just the title.</summary>
+    public void Tick()
+    {
+        if (!Context.IsWorldReady && Game1.activeClickableMenu is TitleMenu tm)
+            foreach (var button in tm.buttons.Take(4)) button.visible = false;
+    }
+
     void DrawTitle(SpriteBatch b, TitleMenu tm)
     {
         DrawTitleBackground(b, tm);
         switch (TitleMenu.subMenu)
         {
             case null:
-                logo ??= Game1.content.Load<Texture2D>("Minigames\\TitleButtons");
-                b.Draw(logo, new Vector2((ModEntry.W - 398) / 2, 40), new Rectangle(0, 0, 398, 187), Color.White);
                 for (int i = 0; i < Math.Min(tm.buttons.Count, 4); i++)
                     b.Draw(tm.titleButtonsTexture, TitleButton(i), tm.buttons[i].sourceRect, Color.White);
                 break;
@@ -1373,14 +1378,20 @@ public class Panels
                     Card(b, r.X, r.Y, r.Width, r.Height);
                     if (slots[lm.currentItemIndex + k] is LoadGameMenu.SaveFileSlot { Farmer: Farmer f })
                     {
-                        Text(b, f.Name, new Vector2(r.X + 18, r.Y + 14));
-                        Text(b, f.farmName.Value + " Farm", new Vector2(r.X + 300, r.Y + 14), Faint);
+                        // Same farmer pose as the game's load list, at half its size.
+                        FarmerRenderer.isDrawingForUI = true;
+                        f.FarmerRenderer.draw(b, new FarmerSprite.AnimationFrame(0, 0, false, false), 0, new Rectangle(0, 0, 16, 32),
+                            new Vector2(r.X + 16, r.Y + 14), Vector2.Zero, 0.8f, 2, Color.White, 0f, 0.5f, f);
+                        FarmerRenderer.isDrawingForUI = false;
+                        Text(b, f.Name, new Vector2(r.X + 64, r.Y + 14));
+                        RightText(b, f.farmName.Value + " Farm", r.Right - 18, r.Y + 14, Faint);
                         string date = f.dayOfMonthForSaveGame.HasValue && f.seasonForSaveGame.HasValue && f.yearForSaveGame.HasValue
                             ? Utility.getDateStringFor(f.dayOfMonthForSaveGame.Value, f.seasonForSaveGame.Value, f.yearForSaveGame.Value)
                             : f.dateStringForSaveGame;
-                        Text(b, date, new Vector2(r.X + 18, r.Y + 50), Faint);
-                        Icon(b, Game1.mouseCursors, Coin, r.X + 300, r.Y + 54, 2);
-                        Text(b, Utility.getNumberWithCommas(f.Money), new Vector2(r.X + 322, r.Y + 50), Faint);
+                        Text(b, date, new Vector2(r.X + 64, r.Y + 50), Faint);
+                        string money = Utility.getNumberWithCommas(f.Money);
+                        RightText(b, money, r.Right - 18, r.Y + 50, Faint);
+                        Icon(b, Game1.mouseCursors, Coin, r.Right - 18 - (int)Game1.smallFont.MeasureString(money).X - 24, r.Y + 54, 2);
                     }
                 }
                 if (slots.Count == 0) { Card(b, 8, 16, 604, 96); Text(b, "No saves yet.", new Vector2(26, 50), Faint); }
@@ -1398,6 +1409,9 @@ public class Panels
         }
     }
 
+    static void RightText(SpriteBatch b, string text, int right, int y, Color c) =>
+        Text(b, text, new Vector2(right - Game1.smallFont.MeasureString(text).X, y), c);
+
     static void DrawTitleBack(SpriteBatch b)
     {
         Card(b, TitleBack.X, TitleBack.Y, TitleBack.Width, TitleBack.Height);
@@ -1412,7 +1426,15 @@ public class Panels
         {
             case null:
                 for (int i = 0; i < Math.Min(tm.buttons.Count, 4); i++)
-                    if (TitleButton(i).Contains(x, y)) { tm.receiveLeftClick(tm.buttons[i].bounds.Center.X, tm.buttons[i].bounds.Center.Y); return; }
+                    if (TitleButton(i).Contains(x, y))
+                    {
+                        // The top-screen copy is hidden, and hidden buttons ignore clicks; show it just for this one.
+                        var button = tm.buttons[i];
+                        button.visible = true;
+                        tm.receiveLeftClick(button.bounds.Center.X, button.bounds.Center.Y);
+                        button.visible = false;
+                        return;
+                    }
                 break;
             case LoadGameMenu lm when !lm.IsDoingTask():
                 if (SaveUp.Contains(x, y)) { lm.currentItemIndex = Math.Max(0, lm.currentItemIndex - 1); return; }

@@ -87,6 +87,7 @@ public class ModEntry : Mod
     void OnUpdateTicked(object sender, UpdateTickedEventArgs e)
     {
         if (view == null) return;
+        panels.Tick();
 
         while (touches.TryDequeue(out var t))
         {
