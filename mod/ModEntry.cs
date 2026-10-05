@@ -29,14 +29,14 @@ public class ModEntry : Mod
     readonly RenderTarget2D[] targets = new RenderTarget2D[2];
     SpriteBatch batch;
     Panels panels;
-    readonly byte[] bytes = new byte[W * H * 4];
+    readonly byte[][] bytes = { new byte[W * H * 4], new byte[W * H * 4] };
     readonly Bitmap[] bitmaps = new Bitmap[2];
     readonly BitmapDrawable[] drawables = new BitmapDrawable[2];
-    Java.Nio.ByteBuffer pixels;
+    readonly Java.Nio.ByteBuffer[] pixels = new Java.Nio.ByteBuffer[2];
     readonly ConcurrentQueue<(int x, int y)> taps = new();
     int flip, frames;
     int pendingRedraws;
-    long drawTicks, readTicks, copyTicks;
+    long drawTicks, readTicks;
     readonly Stopwatch timer = new();
 
     public override void Entry(IModHelper helper)
@@ -122,27 +122,29 @@ public class ModEntry : Mod
         gd.Viewport = oldViewport;
         long drawn = timer.Elapsed.Ticks;
 
-        read.GetData(bytes);
+        int f = flip;
+        var buf = bytes[f];
+        read.GetData(buf);
         long readDone = timer.Elapsed.Ticks;
 
-        // Copy straight into a direct buffer; ByteBuffer.Wrap would allocate a new Java array each time.
-        pixels ??= Java.Nio.ByteBuffer.AllocateDirect(bytes.Length);
-        Marshal.Copy(bytes, 0, Android.Runtime.JNIEnv.GetDirectBufferAddress(pixels.Handle), bytes.Length);
-        pixels.Rewind();
-        var bmp = bitmaps[flip] ??= Bitmap.CreateBitmap(W, H, Bitmap.Config.Argb8888);
-        bmp.CopyPixelsFromBuffer(pixels);
-        var d = drawables[flip] ??= NewDrawable(bmp);
+        // The Java-side copy runs on the UI thread so the game thread only pays for draw + readback.
+        // Each flip has its own byte array, bitmap and drawable, so the next readback can't race it.
         activity.RunOnUiThread(() =>
         {
-            view.SetImageDrawable(d);
+            var direct = pixels[f] ??= Java.Nio.ByteBuffer.AllocateDirect(buf.Length);
+            Marshal.Copy(buf, 0, Android.Runtime.JNIEnv.GetDirectBufferAddress(direct.Handle), buf.Length);
+            direct.Rewind();
+            var bmp = bitmaps[f] ??= Bitmap.CreateBitmap(W, H, Bitmap.Config.Argb8888);
+            bmp.CopyPixelsFromBuffer(direct);
+            view.SetImageDrawable(drawables[f] ??= NewDrawable(bmp));
             view.Invalidate();
         });
 
-        drawTicks += drawn; readTicks += readDone - drawn; copyTicks += timer.Elapsed.Ticks - readDone;
+        drawTicks += drawn; readTicks += readDone - drawn;
         if (++frames % 300 == 0)
         {
-            Monitor.Log($"Bottom screen ms/update: draw {drawTicks / frames / 1e4:0.00}, read {readTicks / frames / 1e4:0.00}, copy {copyTicks / frames / 1e4:0.00}", LogLevel.Trace);
-            drawTicks = readTicks = copyTicks = frames = 0;
+            Monitor.Log($"Bottom screen ms/update: draw {drawTicks / frames / 1e4:0.00}, read {readTicks / frames / 1e4:0.00}", LogLevel.Trace);
+            drawTicks = readTicks = frames = 0;
         }
     }
 
