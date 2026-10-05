@@ -147,6 +147,7 @@ public class Panels
 
     void Tap(int x, int y)
     {
+        if (!Context.IsWorldReady && Game1.activeClickableMenu is TitleMenu tm) { TapTitle(tm, x, y); return; }
         if (Idle) return;
         if (y < TabH)
         {
@@ -165,7 +166,12 @@ public class Panels
 
     public void Draw(SpriteBatch b)
     {
-        if (Showing is not Tab shown) { DrawLogo(b); return; }
+        if (Showing is not Tab shown)
+        {
+            if (!Context.IsWorldReady && Game1.activeClickableMenu is TitleMenu tm) DrawTitle(b, tm);
+            else DrawLogo(b);
+            return;
+        }
 
         b.Draw(Game1.staminaRect, new Rectangle(0, 0, ModEntry.W, ModEntry.H), Paper);
         if (shown == Tab.Aim) DrawAim(b);
@@ -1090,6 +1096,10 @@ public class Panels
 
     ISalable shopPick;
     int shopBagRow;
+    // Selling: the picked bag slot and how many of it to sell.
+    int sellPick = -1, sellAmount;
+    static readonly Rectangle SellMinus = new(296, 270, 56, 52), SellPlus = new(436, 270, 56, 52), SellMax = new(500, 270, 100, 52),
+        SellButton = new(296, 328, 304, 58);
     static readonly Rectangle[] BuyRects = { new(296, 330, 96, 56), new(400, 330, 96, 56), new(504, 330, 96, 56) };
     static readonly int[] BuyCounts = { 1, 5, 25 };
     static Rectangle ShopBagRect(int c) => new(SlotX + c * SlotW, 432, SlotW, SlotH);
@@ -1108,7 +1118,10 @@ public class Panels
         });
 
         Card(b, 8, 262, 604, 132);
-        if (shopPick == null) Text(b, "Tap an item to buy it.", new Vector2(22, 276), Faint);
+        var items0 = Game1.player.Items;
+        if (sellPick >= 0 && (sellPick >= items0.Count || items0[sellPick] == null)) sellPick = -1;
+        if (sellPick >= 0) DrawSellDetail(b, shop, items0[sellPick]);
+        else if (shopPick == null) Text(b, "Tap an item to buy it, or a bag item to sell it.", new Vector2(22, 276), Faint);
         else
         {
             var stock = shop.itemPriceAndStock[shopPick];
@@ -1128,7 +1141,7 @@ public class Panels
             }
         }
 
-        // Selling: one bag row at a time, through the shop's own sell click.
+        // Selling: one bag row at a time; tap picks the item, the detail card above sells it.
         Card(b, 8, 402, 604, 126);
         int rows = Math.Max(1, Game1.player.MaxItems / Cols);
         shopBagRow = Math.Min(shopBagRow, rows - 1);
@@ -1148,7 +1161,71 @@ public class Panels
                 Item(b, item, r.X + 1, r.Y + 6, 48, sellable ? 1f : 0.35f);
                 Count(b, item.Stack, r.Right, r.Bottom);
             }
+            if (i == sellPick) b.Draw(Game1.mouseCursors, r, new Rectangle(194, 388, 16, 16), Color.White);
         }
+    }
+
+    void DrawSellDetail(SpriteBatch b, ShopMenu shop, Item item)
+    {
+        SlotFrame(b, 22, 274, 64);
+        Item(b, item, 22, 274, 64);
+        float ny = 272;
+        Wrapped(b, item.DisplayName, 98, ref ny, 190, Ink, 2);
+        Icon(b, Game1.mouseCursors, Coin, 98, 330, 2);
+        Text(b, $"{SellUnitPrice(shop, item)} each", new Vector2(120, 326), Faint);
+        Text(b, $"Have {item.Stack}", new Vector2(98, 352), Faint);
+
+        foreach (var (r, label) in new[] { (SellMinus, "-"), (SellPlus, "+"), (SellMax, "Max") })
+        {
+            Card(b, r.X, r.Y, r.Width, r.Height);
+            var size = Game1.smallFont.MeasureString(label);
+            Text(b, label, new Vector2(r.X + (r.Width - size.X) / 2, r.Y + (r.Height - size.Y) / 2 + 2));
+        }
+        var amt = sellAmount.ToString();
+        Text(b, amt, new Vector2(394 - Game1.smallFont.MeasureString(amt).X / 2, 284));
+
+        IClickableMenu.drawTextureBox(b, Game1.mouseCursors, BoxSrc, SellButton.X, SellButton.Y, SellButton.Width, SellButton.Height, Color.White, 2f, false);
+        Icon(b, Game1.mouseCursors, Coin, SellButton.X + 14, SellButton.Y + 20, 2);
+        Text(b, $"Sell {sellAmount} for {SellUnitPrice(shop, item) * sellAmount}g", new Vector2(SellButton.X + 40, SellButton.Y + 16));
+    }
+
+    int SellUnitPrice(ShopMenu shop, Item item) =>
+        (int)(item.sellToStorePrice() * helper.Reflection.GetField<float>(shop, "sellPercentage").GetValue());
+
+    /// <summary>Sells part of a stack, following the shop's own sell steps (minus the coin animation).</summary>
+    void Sell(ShopMenu shop, int index, int count)
+    {
+        var items = Game1.player.Items;
+        if (items[index] is not Item item || !(shop.inventory.highlightMethod?.Invoke(item) ?? true)) return;
+        count = Math.Clamp(count, 1, item.Stack);
+        var sold = item.getOne();
+        sold.Stack = count;
+        item.Stack -= count;
+        if (item.Stack <= 0) items[index] = null;
+
+        if (shop.onSell != null) shop.onSell(sold);
+        else
+        {
+            int unit = SellUnitPrice(shop, sold);
+            ShopMenu.chargePlayer(Game1.player, shop.currency, -unit * count);
+            ISalable buyback = shop.CanBuyback() ? shop.AddBuybackItem(sold, unit, count) : null;
+            // Shops resell edible items you sold them the next day.
+            if (sold is SObject obj && obj.edibility.Value != -300)
+            {
+                var one = obj.getOne();
+                one.Stack = count;
+                if (buyback != null && shop.buyBackItemsToResellTomorrow.TryGetValue(buyback, out var existing)) existing.Stack += count;
+                else if (Game1.currentLocation is ShopLocation shopLocation)
+                {
+                    if (buyback != null) shop.buyBackItemsToResellTomorrow[buyback] = one;
+                    shopLocation.itemsToStartSellingTomorrow.Add(one);
+                }
+            }
+            Game1.playSound("sell");
+            Game1.playSound("purchase");
+        }
+        if (items[index] == null) sellPick = -1;
+        else sellAmount = Math.Min(sellAmount, items[index].Stack);
     }
 
     void TapShop(int x, int y)
@@ -1157,13 +1234,26 @@ public class Panels
         if (ShopRowPrev.Contains(x, y)) { shopBagRow = Math.Max(0, shopBagRow - 1); return; }
         if (ShopRowNext.Contains(x, y)) { shopBagRow++; return; }
         for (int c = 0; c < Cols; c++)
-            if (ShopBagRect(c).Contains(x, y)) { ClickSlot(shop, shop.inventory, shopBagRow * Cols + c); return; }
+        {
+            int i = shopBagRow * Cols + c;
+            if (!ShopBagRect(c).Contains(x, y) || i >= Game1.player.Items.Count || Game1.player.Items[i] is not Item it) continue;
+            if (!(shop.inventory.highlightMethod?.Invoke(it) ?? true)) { Status($"{it.DisplayName} can't be sold here"); return; }
+            sellPick = i; sellAmount = it.Stack; shopPick = null;
+            return;
+        }
+        if (sellPick >= 0 && Game1.player.Items[sellPick] is Item selling)
+        {
+            if (SellMinus.Contains(x, y)) { sellAmount = Math.Max(1, sellAmount - 1); return; }
+            if (SellPlus.Contains(x, y)) { sellAmount = Math.Min(selling.Stack, sellAmount + 1); return; }
+            if (SellMax.Contains(x, y)) { sellAmount = selling.Stack; return; }
+            if (SellButton.Contains(x, y)) { Sell(shop, sellPick, sellAmount); return; }
+        }
         if (shopPick != null)
             for (int i = 0; i < BuyRects.Length; i++)
                 if (BuyRects[i].Contains(x, y)) { Buy(shop, shopPick, BuyCounts[i]); return; }
         if (!GridView.Contains(x, y)) return;
         for (int n = 0; n < shop.forSale.Count; n++)
-            if (GridRect(n).Contains(x, y)) { shopPick = shop.forSale[n]; return; }
+            if (GridRect(n).Contains(x, y)) { shopPick = shop.forSale[n]; sellPick = -1; return; }
     }
 
     /// <summary>Buys through the shop's own purchase code, clamped like its shift/ctrl-click bulk buy.</summary>
@@ -1226,6 +1316,112 @@ public class Panels
         // Geodes: the click above picks it up; drop it on the anvil like dragging it there.
         if (menu is GeodeMenu geode && geode.heldItem != null)
             geode.receiveLeftClick(geode.geodeSpot.bounds.Center.X, geode.geodeSpot.bounds.Center.Y);
+    }
+
+    // ---------- Title screen ----------
+
+    // Title buttons at 2x (148x116 each), in a row along the bottom like the top screen.
+    static Rectangle TitleButton(int i) => new(6 + i * 152, ModEntry.H - 128, 148, 116);
+    static Rectangle SaveSlot(int i) => new(8, 16 + i * 104, 604, 96);
+    static readonly Rectangle TitleBack = new(8, 452, 200, 76), SaveUp = new(520, 452, 44, 76), SaveDown = new(568, 452, 44, 76);
+
+    /// <summary>The title screen's sky, clouds, hills and trees, drawn at half the game's scale.</summary>
+    static void DrawTitleBackground(SpriteBatch b, TitleMenu tm)
+    {
+        int w = ModEntry.W, h = ModEntry.H;
+        const float z = 2f;
+        b.Draw(Game1.staminaRect, new Rectangle(0, 0, w, h), new Color(64, 136, 248));
+        b.Draw(Game1.mouseCursors, new Rectangle(0, -300 * 2, w, 300 * 2 + h - 120 * 2), new Rectangle(703, 1912, 1, 264), Color.White);
+        b.Draw(tm.cloudsTexture, new Vector2(-100, h - 250 * z), new Rectangle(0, 0, 512, 337), Color.White * 0.6f, 0, Vector2.Zero, z, SpriteEffects.None, 0);
+        b.Draw(Game1.mouseCursors, new Vector2(-30 * z, h - 158 * z), new Rectangle(0, 886, 639, 148), Color.White, 0, Vector2.Zero, z, SpriteEffects.None, 0);
+        b.Draw(Game1.mouseCursors, new Vector2(0, h - 148 * z), new Rectangle(0, 737, 639, 148), Color.White, 0, Vector2.Zero, z, SpriteEffects.None, 0);
+        b.Draw(tm.cloudsTexture, new Vector2(0, h - 142 * z), new Rectangle(0, 554, 165, 142), Color.White, 0, Vector2.Zero, z, SpriteEffects.None, 0);
+        b.Draw(tm.cloudsTexture, new Vector2(w - 122 * z, h - 153 * z), new Rectangle(390, 543, 122, 153), Color.White, 0, Vector2.Zero, z, SpriteEffects.None, 0);
+    }
+
+    void DrawTitle(SpriteBatch b, TitleMenu tm)
+    {
+        DrawTitleBackground(b, tm);
+        switch (TitleMenu.subMenu)
+        {
+            case null:
+                logo ??= Game1.content.Load<Texture2D>("Minigames\\TitleButtons");
+                b.Draw(logo, new Vector2((ModEntry.W - 398) / 2, 40), new Rectangle(0, 0, 398, 187), Color.White);
+                for (int i = 0; i < Math.Min(tm.buttons.Count, 4); i++)
+                    b.Draw(tm.titleButtonsTexture, TitleButton(i), tm.buttons[i].sourceRect, Color.White);
+                break;
+
+            case LoadGameMenu lm when lm.IsDoingTask():
+                Card(b, 160, 220, 300, 80);
+                Text(b, "Loading...", new Vector2(250, 248));
+                break;
+
+            case LoadGameMenu lm:
+                var slots = lm.MenuSlots;
+                for (int k = 0; k < LoadGameMenu.itemsPerPage && lm.currentItemIndex + k < slots.Count; k++)
+                {
+                    var r = SaveSlot(k);
+                    Card(b, r.X, r.Y, r.Width, r.Height);
+                    if (slots[lm.currentItemIndex + k] is LoadGameMenu.SaveFileSlot { Farmer: Farmer f })
+                    {
+                        Text(b, f.Name, new Vector2(r.X + 18, r.Y + 14));
+                        Text(b, f.farmName.Value + " Farm", new Vector2(r.X + 300, r.Y + 14), Faint);
+                        string date = f.dayOfMonthForSaveGame.HasValue && f.seasonForSaveGame.HasValue && f.yearForSaveGame.HasValue
+                            ? Utility.getDateStringFor(f.dayOfMonthForSaveGame.Value, f.seasonForSaveGame.Value, f.yearForSaveGame.Value)
+                            : f.dateStringForSaveGame;
+                        Text(b, date, new Vector2(r.X + 18, r.Y + 50), Faint);
+                        Icon(b, Game1.mouseCursors, Coin, r.X + 300, r.Y + 54, 2);
+                        Text(b, Utility.getNumberWithCommas(f.Money), new Vector2(r.X + 322, r.Y + 50), Faint);
+                    }
+                }
+                if (slots.Count == 0) { Card(b, 8, 16, 604, 96); Text(b, "No saves yet.", new Vector2(26, 50), Faint); }
+                DrawTitleBack(b);
+                if (lm.currentItemIndex > 0) { Card(b, SaveUp.X, SaveUp.Y, SaveUp.Width, SaveUp.Height); Icon(b, Game1.mouseCursors, ArrowUp, SaveUp.X + 11, SaveUp.Y + 26, 2); }
+                if (lm.currentItemIndex + LoadGameMenu.itemsPerPage < slots.Count) { Card(b, SaveDown.X, SaveDown.Y, SaveDown.Width, SaveDown.Height); Icon(b, Game1.mouseCursors, ArrowDown, SaveDown.X + 11, SaveDown.Y + 26, 2); }
+                break;
+
+            default:
+                // New game, co-op and the rest have text fields and pickers; keep those on top.
+                Card(b, 110, 200, 400, 80);
+                Text(b, "Continue on the top screen.", new Vector2(132, 228));
+                DrawTitleBack(b);
+                break;
+        }
+    }
+
+    static void DrawTitleBack(SpriteBatch b)
+    {
+        Card(b, TitleBack.X, TitleBack.Y, TitleBack.Width, TitleBack.Height);
+        Icon(b, Game1.mouseCursors, ArrowLeft, TitleBack.X + 18, TitleBack.Y + 26, 2.5f);
+        Text(b, "Back", new Vector2(TitleBack.X + 70, TitleBack.Y + 26));
+    }
+
+    /// <summary>Taps click the matching control in the real title menu, so the game does the work.</summary>
+    static void TapTitle(TitleMenu tm, int x, int y)
+    {
+        switch (TitleMenu.subMenu)
+        {
+            case null:
+                for (int i = 0; i < Math.Min(tm.buttons.Count, 4); i++)
+                    if (TitleButton(i).Contains(x, y)) { tm.receiveLeftClick(tm.buttons[i].bounds.Center.X, tm.buttons[i].bounds.Center.Y); return; }
+                break;
+            case LoadGameMenu lm when !lm.IsDoingTask():
+                if (SaveUp.Contains(x, y)) { lm.currentItemIndex = Math.Max(0, lm.currentItemIndex - 1); return; }
+                if (SaveDown.Contains(x, y)) { lm.currentItemIndex = Math.Min(Math.Max(0, lm.MenuSlots.Count - LoadGameMenu.itemsPerPage), lm.currentItemIndex + 1); return; }
+                for (int k = 0; k < LoadGameMenu.itemsPerPage && k < lm.slotButtons.Count; k++)
+                    if (SaveSlot(k).Contains(x, y) && lm.currentItemIndex + k < lm.MenuSlots.Count)
+                    { lm.receiveLeftClick(lm.slotButtons[k].bounds.Center.X, lm.slotButtons[k].bounds.Center.Y); return; }
+                if (TitleBack.Contains(x, y)) ClickBack(tm);
+                break;
+            case not null when TitleBack.Contains(x, y):
+                ClickBack(tm);
+                break;
+        }
+    }
+
+    static void ClickBack(TitleMenu tm)
+    {
+        if (tm.backButton != null) tm.receiveLeftClick(tm.backButton.bounds.Center.X, tm.backButton.bounds.Center.Y);
     }
 
     // ---------- Aim ----------
