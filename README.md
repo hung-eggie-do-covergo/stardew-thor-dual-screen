@@ -14,19 +14,23 @@ it.
 
 So this one is, and always will be:
 
-- **Free.** No paid tier, no Patreon-only build, no feature held back.
-- **Open source, under the GPL-3.0.** Every line that runs on your device is in this repository.
-  Read it, build it yourself, or point someone you trust at it. The GPL also means any fork,
-  including a paid one, has to stay open too.
-- **Honest about how it was made.** This mod was written with heavy help from an AI coding
-  assistant (Claude), directed, tested and reviewed on real hardware by me. I'd rather say so up
-  front than leave you to guess.
+> [!IMPORTANT]
+> **Free and open source, forever.** No paid tier, no Patreon-only build, no feature held back.
+> Every line that runs on your device is in this repository under the [GPL-3.0](LICENSE): read it,
+> build it yourself, or point someone you trust at it. Any fork, including a paid one, has to stay
+> open too.
+
+> [!IMPORTANT]
+> **Built with AI.** This mod was written with heavy help from an AI coding assistant (Claude),
+> directed, tested and reviewed on real hardware by me. I'd rather say so up front than leave you
+> to guess.
 
 ## What it adds
 
-The rule for every feature: **add something the game doesn't already give you, or make something
-the controller makes awkward easy.** The bottom screen is not a second copy of the top one. It
-doesn't mirror the map, repeat the HUD, or reveal anything the game hides from you.
+> [!TIP]
+> **It adds, it never duplicates.** Every feature either gives you something the game doesn't, or
+> makes something the controller makes awkward easy. The bottom screen is not a second copy of the
+> top one: it doesn't mirror the map, repeat the HUD, or reveal anything the game hides from you.
 
 ### Today
 
@@ -101,7 +105,12 @@ last.
 ## Requirements
 
 - AYN Thor (the bottom screen is the Android "presentation" display).
-- [Cinderbox](https://github.com/Ekyso/Cinderbox) with its SMAPI, and your own copy of Stardew Valley.
+- [Cinderbox](https://github.com/Ekyso/Cinderbox) with its SMAPI.
+
+> [!IMPORTANT]
+> **Bring your own game.** You need your own copy of Stardew Valley from
+> [Steam](https://store.steampowered.com/app/413150/Stardew_Valley/) or
+> [GOG](https://www.gog.com/en/game/stardew_valley). No game files ship with this mod.
 
 ## Install
 
@@ -109,7 +118,8 @@ last.
 2. Copy the folder to `/sdcard/StardewValley/desktop/Mods/ThorDualScreen/`.
 3. Start the game from Cinderbox. The bottom screen lights up on the title screen.
 
-Back up `/sdcard/StardewValley/desktop/Saves` before trying any new mod.
+> [!WARNING]
+> Back up `/sdcard/StardewValley/desktop/Saves` before trying any new mod.
 
 ## How it works
 
