@@ -54,9 +54,8 @@ public class Panels
         _ => null,
     };
 
-    static bool Idle =>
-        !Context.IsWorldReady || Game1.eventUp || Game1.dialogueUp
-        || (Game1.activeClickableMenu != null && OpenInventory == null);
+    // Panels stay up behind menus; only the title screen and cutscenes show the logo.
+    static bool Idle => !Context.IsWorldReady || Game1.eventUp;
 
     Tab? Showing => Idle ? null : OpenInventory != null ? Tab.Bag : tab;
 
@@ -727,6 +726,8 @@ public class Panels
 
     void TapAim(int x, int y)
     {
+        // A menu on top owns the game; don't place or swing behind it.
+        if (Game1.activeClickableMenu != null) return;
         var tile = new Vector2((int)Math.Floor((x / AimZoom + aimView.X) / 64), (int)Math.Floor((y / AimZoom + aimView.Y) / 64));
         int px = (int)tile.X * 64 + 32, py = (int)tile.Y * 64 + 32;
         var loc = Game1.currentLocation;
