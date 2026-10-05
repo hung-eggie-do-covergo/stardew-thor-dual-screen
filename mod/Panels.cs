@@ -1378,11 +1378,16 @@ public class Panels
                     Card(b, r.X, r.Y, r.Width, r.Height);
                     if (slots[lm.currentItemIndex + k] is LoadGameMenu.SaveFileSlot { Farmer: Farmer f })
                     {
-                        // Same farmer pose as the game's load list, at half its size.
+                        // Same farmer pose as the game's load list, at half size. The renderer only places clothes
+                        // right at scale 1, so draw at 1 and halve the whole batch; layers need depth sorting.
+                        b.End();
+                        b.Begin(SpriteSortMode.FrontToBack, BlendState.AlphaBlend, SamplerState.PointClamp, null, null, null, Matrix.CreateScale(0.5f));
                         FarmerRenderer.isDrawingForUI = true;
                         f.FarmerRenderer.draw(b, new FarmerSprite.AnimationFrame(0, 0, false, false), 0, new Rectangle(0, 0, 16, 32),
-                            new Vector2(r.X + 16, r.Y + 14), Vector2.Zero, 0.8f, 2, Color.White, 0f, 0.5f, f);
+                            new Vector2(r.X + 16, r.Y + 14) * 2, Vector2.Zero, 0.8f, 2, Color.White, 0f, 1f, f);
                         FarmerRenderer.isDrawingForUI = false;
+                        b.End();
+                        b.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp);
                         Text(b, f.Name, new Vector2(r.X + 64, r.Y + 14));
                         RightText(b, f.farmName.Value + " Farm", r.Right - 18, r.Y + 14, Faint);
                         string date = f.dayOfMonthForSaveGame.HasValue && f.seasonForSaveGame.HasValue && f.yearForSaveGame.HasValue
