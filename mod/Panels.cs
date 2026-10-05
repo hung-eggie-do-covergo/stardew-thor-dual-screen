@@ -1312,10 +1312,19 @@ public class Panels
         var menu = (MenuWithInventory)Game1.activeClickableMenu;
         int i = Enumerable.Range(0, Game1.player.MaxItems).FirstOrDefault(n => StoreBagRect(n).Contains(x, y), -1);
         if (i < 0) return;
+        if (menu is GeodeMenu geode)
+        {
+            // One geode per tap: right-click picks up a single one, then drop it on the anvil.
+            if (geode.geodeAnimationTimer > 0 || geode.heldItem != null) return;
+            var slot = geode.inventory.inventory.FirstOrDefault(c => int.TryParse(c.name, out var n) && n == i);
+            if (slot == null) return;
+            geode.receiveRightClick(slot.bounds.Center.X, slot.bounds.Center.Y);
+            if (geode.heldItem != null) geode.receiveLeftClick(geode.geodeSpot.bounds.Center.X, geode.geodeSpot.bounds.Center.Y);
+            // Refused (bag full, under 25g): put it back rather than leave it in hand.
+            if (geode.heldItem != null && geode.geodeAnimationTimer <= 0 && Game1.player.addItemToInventoryBool(geode.heldItem)) geode.heldItem = null;
+            return;
+        }
         ClickSlot(menu, menu.inventory, i);
-        // Geodes: the click above picks it up; drop it on the anvil like dragging it there.
-        if (menu is GeodeMenu geode && geode.heldItem != null)
-            geode.receiveLeftClick(geode.geodeSpot.bounds.Center.X, geode.geodeSpot.bounds.Center.Y);
     }
 
     // ---------- Title screen ----------
