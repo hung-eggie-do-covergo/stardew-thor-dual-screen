@@ -2,3 +2,6 @@
 refs/
 bin/
 obj/
+
+# Private working notes (device IP, local paths).
+BRIEF.md
