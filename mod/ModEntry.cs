@@ -17,7 +17,7 @@ using XColor = Microsoft.Xna.Framework.Color;
 namespace DualScreen;
 
 /// <summary>Hosts the bottom-screen window: draws panels offscreen with the game's own
-/// SpriteBatch, copies the pixels into an Android ImageView, and routes taps back.</summary>
+/// SpriteBatch, copies the pixels into an Android ImageView, and routes touches back.</summary>
 public class ModEntry : Mod
 {
     // Half the bottom display (1240x1080); shown at 2x with no filtering so pixel art stays crisp.
@@ -33,7 +33,7 @@ public class ModEntry : Mod
     readonly Bitmap[] bitmaps = new Bitmap[2];
     readonly BitmapDrawable[] drawables = new BitmapDrawable[2];
     readonly Java.Nio.ByteBuffer[] pixels = new Java.Nio.ByteBuffer[2];
-    readonly ConcurrentQueue<(int x, int y)> taps = new();
+    readonly ConcurrentQueue<(MotionEventActions action, int x, int y)> touches = new();
     int flip, frames;
     int pendingRedraws;
     long drawTicks, readTicks;
@@ -69,8 +69,8 @@ public class ModEntry : Mod
                 {
                     // Consumed here, so the game never sees it and keeps its controller prompts.
                     e.Handled = true;
-                    if (e.Event.Action == MotionEventActions.Up && view.Width > 0)
-                        taps.Enqueue(((int)(e.Event.GetX() * W / view.Width), (int)(e.Event.GetY() * H / view.Height)));
+                    if (view.Width > 0)
+                        touches.Enqueue((e.Event.ActionMasked, (int)(e.Event.GetX() * W / view.Width), (int)(e.Event.GetY() * H / view.Height)));
                 };
                 window.SetContentView(view);
                 window.Show();
@@ -87,9 +87,9 @@ public class ModEntry : Mod
     {
         if (view == null) return;
 
-        while (taps.TryDequeue(out var tap))
+        while (touches.TryDequeue(out var t))
         {
-            panels.Tap(tap.x, tap.y);
+            panels.Touch(t.action, t.x, t.y);
             // Two renders: readback lags one frame behind the draw.
             pendingRedraws = 2;
         }

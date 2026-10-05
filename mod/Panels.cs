@@ -44,7 +44,7 @@ public class Panels
     List<NPC> lovedBy = new(), likedBy = new();
     List<string> bundles = new();
 
-    public int RedrawInterval => Showing switch { Tab.Aim => 2, Tab.Bag => 15, _ => 30 };
+    public int RedrawInterval => Showing switch { Tab.Aim => 2, Tab.Bag => dragging ? 2 : 15, _ => 30 };
 
     /// <summary>Menu whose inventory the Bag panel drives, e.g. a chest or a shop.</summary>
     static InventoryMenu OpenInventory => Game1.activeClickableMenu switch
@@ -60,7 +60,38 @@ public class Panels
 
     Tab? Showing => Idle ? null : OpenInventory != null ? Tab.Bag : tab;
 
-    public void Tap(int x, int y)
+    // Bag drag-and-drop: the slot the finger went down on, and where it is now.
+    int dragFrom = -1;
+    Point dragAt;
+    bool dragging;
+
+    public void Touch(Android.Views.MotionEventActions action, int x, int y)
+    {
+        switch (action)
+        {
+            case Android.Views.MotionEventActions.Down:
+                dragFrom = Showing == Tab.Bag && OpenInventory == null ? BagSlotAt(x, y - ContentShift) : -1;
+                if (dragFrom >= 0 && Game1.player.Items[dragFrom] == null) dragFrom = -1;
+                dragAt = new Point(x, y);
+                dragging = false;
+                break;
+            case Android.Views.MotionEventActions.Move when dragFrom >= 0:
+                // A few pixels of wobble still counts as a tap.
+                dragging |= Math.Abs(x - dragAt.X) + Math.Abs(y - dragAt.Y) > 12;
+                if (dragging) dragAt = new Point(x, y);
+                break;
+            case Android.Views.MotionEventActions.Up:
+                if (dragging) DropItem(dragFrom, BagSlotAt(x, y - ContentShift));
+                else Tap(x, y);
+                dragFrom = -1; dragging = false;
+                break;
+            case Android.Views.MotionEventActions.Cancel:
+                dragFrom = -1; dragging = false;
+                break;
+        }
+    }
+
+    void Tap(int x, int y)
     {
         if (Idle) return;
         if (y < TabH)
@@ -85,7 +116,13 @@ public class Panels
             b.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp, null, null, null, Matrix.CreateTranslation(0, ContentShift, 0));
             if (shown == Tab.Today) DrawToday(b);
             else if (shown == Tab.Gifts) DrawNearby(b);
-            else DrawBag(b);
+            else
+            {
+                DrawBag(b);
+                // Last, so the dragged item floats over the item card; a bit larger to show past the fingertip.
+                if (dragging && Game1.player.Items[dragFrom] is Item held)
+                    Item(b, held, dragAt.X - 32, dragAt.Y - ContentShift - 32, 64);
+            }
             b.End();
             b.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp);
         }
@@ -514,11 +551,14 @@ public class Panels
             var r = SlotRect(i);
             bool locked = i >= Game1.player.MaxItems;
             b.Draw(Game1.menuTexture, r, new Rectangle(128, 128, 64, 64), locked ? Color.White * 0.35f : Color.White);
+            bool lifted = dragging && i == dragFrom;
             if (!locked && i < items.Count && items[i] is Item item)
             {
-                Item(b, item, r.X, r.Y);
-                Count(b, item.Stack, r.Right, r.Bottom);
+                Item(b, item, r.X, r.Y, 48, lifted ? 0.3f : 1f);
+                if (!lifted) Count(b, item.Stack, r.Right, r.Bottom);
             }
+            if (dragging && i == BagSlotAt(dragAt.X, dragAt.Y - ContentShift))
+                b.Draw(Game1.staminaRect, r, Color.White * 0.4f);
             if (menu == null && i == Game1.player.CurrentToolIndex)
                 b.Draw(Game1.mouseCursors, r, new Rectangle(194, 388, 16, 16), Color.White);
         }
@@ -531,7 +571,7 @@ public class Panels
             return;
         }
         var cur = Game1.player.CurrentItem;
-        if (cur == null) { Text(b, "Tap an item to hold it.", new Vector2(22, 256), Faint); return; }
+        if (cur == null) { Text(b, "Tap an item to hold it. Drag to rearrange.", new Vector2(22, 256), Faint); return; }
         SlotFrame(b, 22, 256, 64);
         Item(b, cur, 22, 256, 64);
         Text(b, cur.DisplayName, new Vector2(98, 258));
@@ -544,9 +584,28 @@ public class Panels
         Wrapped(b, cur.getDescription().Replace('\n', ' '), 22, ref y, 576, Faint, 6);
     }
 
+    static int BagSlotAt(int x, int y) =>
+        Enumerable.Range(0, Game1.player.MaxItems).FirstOrDefault(n => SlotRect(n).Contains(x, y), -1);
+
+    /// <summary>Drops a dragged item: stacks onto the same kind of item, otherwise swaps slots.</summary>
+    static void DropItem(int from, int to)
+    {
+        var items = Game1.player.Items;
+        if (from < 0 || to < 0 || from == to || items[from] is not Item moving) return;
+        if (items[to] is Item there && there.canStackWith(moving))
+        {
+            int left = there.addToStack(moving);
+            if (left > 0) moving.Stack = left;
+            else items[from] = null;
+            return;
+        }
+        items[from] = items[to];
+        items[to] = moving;
+    }
+
     void TapBag(int x, int y)
     {
-        int i = Enumerable.Range(0, Game1.player.MaxItems).FirstOrDefault(n => SlotRect(n).Contains(x, y), -1);
+        int i = BagSlotAt(x, y);
         if (i < 0) return;
 
         var menu = OpenInventory;
