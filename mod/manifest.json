@@ -1,0 +1,9 @@
+{
+  "Name": "Thor Dual Screen",
+  "Author": "Hung",
+  "Version": "0.1.0",
+  "Description": "Today, nearby and bag panels on the AYN Thor's bottom screen.",
+  "UniqueID": "Hung.ThorDualScreen",
+  "EntryDll": "DualScreen.dll",
+  "MinimumApiVersion": "4.0.0"
+}

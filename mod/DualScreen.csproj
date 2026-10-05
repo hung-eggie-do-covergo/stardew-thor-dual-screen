@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>DualScreen</AssemblyName>
+    <Nullable>disable</Nullable>
+    <NoWarn>CA1416;MSB3277</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="../refs/*.dll" Private="false" />
+  </ItemGroup>
+</Project>
