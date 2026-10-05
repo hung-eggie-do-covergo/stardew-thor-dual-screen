@@ -32,65 +32,19 @@ So this one is, and always will be:
 > makes something the controller makes awkward easy. The bottom screen is not a second copy of the
 > top one: it doesn't mirror the map, repeat the HUD, or reveal anything the game hides from you.
 
-### Today
-
-What you'd otherwise check the TV, the calendar and the field for each morning: luck, tomorrow's
-weather, crops ready and dry, the traveling cart and festivals, and this week's birthdays.
-
-![Today tab](docs/screenshots/today.png)
-
-### Gifts
-
-Hold an item to see who loves and likes it, and which bundle needs it. Walk up to a villager to see
-their hearts, this week's gifts and what they love. No more wiki tab open beside the game.
-
-![Gifts tab next to Pierre](docs/screenshots/gifts.png)
-
-### Bag
-
-Touch inventory. Tap to hold, drag to rearrange, drag onto the trash can (with your trash-can
-upgrade refund), and stack your bag into nearby chests in one tap. Picking items off a 36-slot grid
-with a d-pad was the single worst part of playing on a handheld.
-
-![Bag tab](docs/screenshots/bag.png)
-
-### Craft
-
-Every recipe you know, scrollable, with what you have against what it needs. Tap Craft and it goes
-straight into your bag.
-
-![Craft tab](docs/screenshots/craft.png)
-
-### Aim
-
-A close-up of the tiles around you. Tap a tile to place furniture, seeds or a chest exactly there,
-or to turn and swing your tool at it. A green or red square shows whether it fits, and your hotbar
-sits along the bottom so you can swap tools without leaving.
-
-![Aim tab outdoors, placing a chest](docs/screenshots/aim.png)
-
-### When a menu opens on top
-
-The bottom screen adapts to whatever the game is asking you to do:
-
-| Chest | Shop | Shipping bin | Clint's geodes |
+| **Today** | **Gifts** | **Bag** | **Craft** |
 |---|---|---|---|
-| ![](docs/screenshots/chest.png) | ![](docs/screenshots/shop.png) | ![](docs/screenshots/shipping.png) | ![](docs/screenshots/geodes.png) |
-| Tap to take or store; fill stacks and organize | Buy 1/5/25; pick an amount to sell | Pick an amount to ship | Tap a geode to crack it |
+| <a href="docs/screenshots/today.png"><img src="docs/screenshots/today.png" alt="Today"></a> | <a href="docs/screenshots/gifts.png"><img src="docs/screenshots/gifts.png" alt="Gifts"></a> | <a href="docs/screenshots/bag.png"><img src="docs/screenshots/bag.png" alt="Bag"></a> | <a href="docs/screenshots/craft.png"><img src="docs/screenshots/craft.png" alt="Craft"></a> |
+| Luck, weather, crops, birthdays | Who loves what you hold | Touch inventory, drag, trash, stack | Recipes with have/need |
+| **Aim** | **Chest** | **Shop** | **Shipping bin** |
+| <a href="docs/screenshots/aim.png"><img src="docs/screenshots/aim.png" alt="Aim"></a> | <a href="docs/screenshots/chest.png"><img src="docs/screenshots/chest.png" alt="Chest"></a> | <a href="docs/screenshots/shop.png"><img src="docs/screenshots/shop.png" alt="Shop"></a> | <a href="docs/screenshots/shipping.png"><img src="docs/screenshots/shipping.png" alt="Shipping bin"></a> |
+| Tap a tile to place or use a tool | Tap to take or store | Buy 1/5/25, sell any amount | Pick an amount to ship |
+| **Clint's geodes** | **Title screen** | **Load** | **Tabs** |
+| <a href="docs/screenshots/geodes.png"><img src="docs/screenshots/geodes.png" alt="Clint's geodes"></a> | <a href="docs/screenshots/title.png"><img src="docs/screenshots/title.png" alt="Title screen"></a> | <a href="docs/screenshots/load.png"><img src="docs/screenshots/load.png" alt="Load"></a> | <a href="docs/screenshots/tabs.png"><img src="docs/screenshots/tabs.png" alt="Tabs"></a> |
+| Tap a geode to crack it | Buttons on the bottom | Your saves as big cards | Hide and reorder tabs |
 
-Questions with answers (the mine elevator, villagers asking you something) appear as big buttons.
-Everything here goes through the game's own menus, so prices, rules and sounds are exactly the
-game's.
-
-### Title screen and tabs
-
-The top screen keeps just the title art; New, Load, Co-op and Exit live on the bottom, along with
-your save list. A Tabs page lets you hide and reorder tabs, and the mod remembers the one you used
-last.
-
-| Load | Tabs |
-|---|---|
-| ![](docs/screenshots/load.png) | ![](docs/screenshots/tabs.png) |
+Every menu goes through the game's own code, so prices, rules and sounds are exactly the game's.
+**[Read the full feature guide →](docs/FEATURES.md)**
 
 ## What it deliberately doesn't do
 
