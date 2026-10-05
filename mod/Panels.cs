@@ -15,9 +15,10 @@ namespace DualScreen;
 /// <summary>The bottom-screen panels, drawn with the game's own UI sprites on a fixed 620x540 layout.</summary>
 public class Panels
 {
-    enum Tab { Today, Gifts, Bag, Craft, Aim }
+    // Choices and Shop aren't in the strip: they take over while that kind of menu is open on top.
+    enum Tab { Today, Gifts, Bag, Craft, Aim, Tabs, Choices, Shop }
 
-    static readonly string[] TabNames = { "Today", "Gifts", "Bag", "Craft", "Aim" };
+    static readonly Tab[] Movable = { Tab.Today, Tab.Gifts, Tab.Bag, Tab.Craft, Tab.Aim };
     // Tabs keep a fixed size (about 24x10 mm on the Thor) and the strip scrolls sideways when they don't fit.
     const int TabH = 64, TabW = 140, TabGap = 4, Slot = 48, Cols = 12;
     // Content cards are laid out from y=58; shift them down to sit under the header.
@@ -36,15 +37,36 @@ public class Panels
     Tab tab = Tab.Today;
     Texture2D logo;
     readonly IMonitor monitor;
+    readonly IModHelper helper;
+    readonly ModConfig config;
 
-    public Panels(IMonitor monitor) => this.monitor = monitor;
+    public Panels(IModHelper helper, IMonitor monitor)
+    {
+        this.helper = helper;
+        this.monitor = monitor;
+        config = helper.ReadConfig<ModConfig>();
+        // Drop names this version doesn't know and add any new tabs at the end.
+        config.TabOrder = config.TabOrder.Where(n => Enum.TryParse<Tab>(n, out var t) && Movable.Contains(t)).Distinct().ToList();
+        config.TabOrder.AddRange(Movable.Select(t => t.ToString()).Except(config.TabOrder));
+        if (Enum.TryParse<Tab>(config.LastTab, out var last) && Visible.Contains(last)) tab = last;
+    }
+
+    /// <summary>Tabs in the strip, in the player's order; the Tabs settings tab is always last.</summary>
+    List<Tab> Visible => config.TabOrder.Where(n => !config.HiddenTabs.Contains(n)).Select(Enum.Parse<Tab>).Append(Tab.Tabs).ToList();
+
+    void Open(Tab t)
+    {
+        tab = t;
+        config.LastTab = t.ToString();
+        helper.WriteConfig(config);
+    }
 
     // "Who loves this" scans every villager, so only redo it when the held item changes.
     string lovedFor;
     List<NPC> lovedBy = new(), likedBy = new();
     List<string> bundles = new();
 
-    public int RedrawInterval => Showing switch { Tab.Aim => 2, Tab.Bag => dragging ? 2 : 15, Tab.Craft => listTouch ? 2 : 30, _ => 30 };
+    public int RedrawInterval => Showing switch { Tab.Aim => 2, Tab.Bag => dragging ? 2 : 15, Tab.Craft or Tab.Shop => listTouch ? 2 : 30, _ => 30 };
 
     /// <summary>Menu whose inventory the Bag panel drives, e.g. a chest or a shop.</summary>
     static InventoryMenu OpenInventory => Game1.activeClickableMenu switch
@@ -57,13 +79,22 @@ public class Panels
     // Panels stay up behind menus; only the title screen and cutscenes show the logo.
     static bool Idle => !Context.IsWorldReady || Game1.eventUp;
 
-    Tab? Showing => Idle ? null : OpenInventory != null ? Tab.Bag : tab;
+    /// <summary>The layout a top menu takes over the bottom screen with, if any.</summary>
+    static Tab? MenuLayout => Game1.activeClickableMenu switch
+    {
+        DialogueBox { isQuestion: true } d when d.responses.Length > 0 => Tab.Choices,
+        ShopMenu => Tab.Shop,
+        MenuWithInventory => Tab.Bag,
+        _ => null,
+    };
+
+    Tab? Showing => Idle ? null : MenuLayout ?? tab;
 
     // Header strip scroll, in pixels; swiping the header moves it.
     int tabScroll, scrollStartX, scrollStartValue;
     bool scrollingTabs, headerTouch;
 
-    static int MaxTabScroll => Math.Max(0, TabGap + TabNames.Length * (TabW + TabGap) - ModEntry.W);
+    int MaxTabScroll => Math.Max(0, TabGap + Visible.Count * (TabW + TabGap) - ModEntry.W);
 
     // Bag drag-and-drop: the slot the finger went down on, and where it is now.
     int dragFrom = -1;
@@ -82,13 +113,13 @@ public class Panels
                 scrollingTabs |= Math.Abs(x - scrollStartX) > 12;
                 if (scrollingTabs) tabScroll = Math.Clamp(scrollStartValue - (x - scrollStartX), 0, MaxTabScroll);
                 break;
-            case Android.Views.MotionEventActions.Down when Showing == Tab.Craft && RecipeView.Contains(x, y - ContentShift):
-                listStartY = y; listStartValue = recipeScroll;
+            case Android.Views.MotionEventActions.Down when Showing is Tab.Craft or Tab.Shop && GridView.Contains(x, y - ContentShift):
+                listStartY = y; listStartValue = gridScroll;
                 listTouch = true; scrollingList = headerTouch = scrollingTabs = false;
                 break;
             case Android.Views.MotionEventActions.Move when listTouch:
                 scrollingList |= Math.Abs(y - listStartY) > 12;
-                if (scrollingList) recipeScroll = Math.Clamp(listStartValue - (y - listStartY), 0, MaxRecipeScroll);
+                if (scrollingList) gridScroll = Math.Clamp(listStartValue - (y - listStartY), 0, MaxGridScroll);
                 break;
             case Android.Views.MotionEventActions.Down:
                 headerTouch = scrollingTabs = listTouch = scrollingList = false;
@@ -120,11 +151,15 @@ public class Panels
         if (y < TabH)
         {
             int i = (x + tabScroll - TabGap) / (TabW + TabGap);
-            if (OpenInventory == null && i >= 0 && i < TabNames.Length) tab = (Tab)i;
+            var visible = Visible;
+            if (MenuLayout == null && i >= 0 && i < visible.Count) Open(visible[i]);
             return;
         }
         if (Showing == Tab.Bag) TapBag(x, y - ContentShift);
         else if (Showing == Tab.Craft) TapCraft(x, y - ContentShift);
+        else if (Showing == Tab.Tabs) TapTabSettings(x, y - ContentShift);
+        else if (Showing == Tab.Choices) TapChoices(x, y - ContentShift);
+        else if (Showing == Tab.Shop) TapShop(x, y - ContentShift);
         else if (Showing == Tab.Aim) TapAim(x, y);
     }
 
@@ -141,6 +176,9 @@ public class Panels
             if (shown == Tab.Today) DrawToday(b);
             else if (shown == Tab.Gifts) DrawNearby(b);
             else if (shown == Tab.Craft) DrawCraft(b);
+            else if (shown == Tab.Tabs) DrawTabSettings(b);
+            else if (shown == Tab.Choices) DrawChoices(b);
+            else if (shown == Tab.Shop) DrawShop(b);
             else
             {
                 DrawBag(b);
@@ -168,13 +206,14 @@ public class Panels
     {
         b.Draw(Game1.staminaRect, new Rectangle(0, 0, ModEntry.W, TabH), new Color(214, 147, 86));
         b.Draw(Game1.staminaRect, new Rectangle(0, TabH - 2, ModEntry.W, 2), Ink);
-        for (int i = 0; i < TabNames.Length; i++)
+        var visible = Visible;
+        for (int i = 0; i < visible.Count; i++)
         {
-            bool on = (Tab)i == shown;
+            bool on = visible[i] == shown;
             int x = TabGap + i * (TabW + TabGap) - tabScroll, y = on ? 6 : 2;
             IClickableMenu.drawTextureBox(b, Game1.mouseCursors, BoxSrc, x, y, TabW, TabH - 6, on ? Color.White : new Color(200, 160, 120), 2f, false);
-            TabIcon(b, (Tab)i, x + 12, y + 12);
-            Text(b, TabNames[i], new Vector2(x + 56, y + 16), on ? Ink : Faint);
+            TabIcon(b, visible[i], x + 12, y + 12);
+            Text(b, visible[i].ToString(), new Vector2(x + 56, y + 16), on ? Ink : Faint);
         }
 
         // Edge arrows over a fade, only on sides that have more tabs to scroll to.
@@ -203,6 +242,8 @@ public class Panels
             case Tab.Bag: Icon(b, Game1.mouseCursors, Backpack, x + 6, y - 2, 3.5f); break;
             case Tab.Craft: Item(b, workbench ??= ItemRegistry.Create("(BC)208"), x - 4, y - 6, 44); break;
             case Tab.Aim: Item(b, hoe ??= ItemRegistry.Create("(T)Hoe"), x - 4, y - 4, 44); break;
+            // The game menu's options tab sprite.
+            case Tab.Tabs: Icon(b, Game1.mouseCursors, new Rectangle(96, 368, 16, 16), x - 2, y - 2, 2.5f); break;
         }
     }
 
@@ -687,6 +728,10 @@ public class Panels
 
     void DrawBag(SpriteBatch b)
     {
+        if (Game1.activeClickableMenu is ItemGrabMenu { shippingBin: true })
+        { DrawMenuBag(b, "Shipping bin", "Tap an item to ship it. It's sold overnight.", Game1.getFarm().lastItemShipped); return; }
+        if (Game1.activeClickableMenu is GeodeMenu)
+        { DrawMenuBag(b, "Clint - geodes", "Tap a geode to crack it open.", null); return; }
         if (Storage is InventoryMenu store) { DrawStorage(b, store); return; }
         var menu = OpenInventory;
         Card(b, 8, 58, 604, 204);
@@ -809,6 +854,7 @@ public class Panels
 
     void TapBag(int x, int y)
     {
+        if (Game1.activeClickableMenu is ItemGrabMenu { shippingBin: true } or GeodeMenu) { TapMenuBag(x, y); return; }
         if (Storage is InventoryMenu store) { TapStorage(store, x, y); return; }
         if (StackRect.Contains(x, y) && OpenInventory == null) { QuickStack(); return; }
         int i = BagSlotAt(x, y);
@@ -836,9 +882,9 @@ public class Panels
 
     // Recipe grid scrolls vertically inside a fixed 3-row window.
     const int RecipeCols = 10, RecipeStep = 58, RecipeSize = 56;
-    static readonly Rectangle RecipeView = new(16, 68, RecipeCols * RecipeStep, 3 * RecipeStep), CraftRect = new(446, 458, 152, 60);
+    static readonly Rectangle GridView = new(16, 68, RecipeCols * RecipeStep, 3 * RecipeStep), CraftRect = new(446, 458, 152, 60);
     static readonly Rectangle ArrowUp = new(421, 459, 11, 12), ArrowDown = new(421, 472, 11, 12);
-    int recipeScroll, listStartY, listStartValue;
+    int gridScroll, listStartY, listStartValue;
     bool listTouch, scrollingList;
     static readonly Rectangle ArrowLeft = new(352, 495, 12, 11), ArrowRight = new(365, 495, 12, 11);
 
@@ -847,9 +893,11 @@ public class Panels
     int recipeCount = -1;
     CraftingRecipe picked;
 
-    Rectangle RecipeRect(int n) => new(RecipeView.X + n % RecipeCols * RecipeStep, RecipeView.Y + n / RecipeCols * RecipeStep - recipeScroll, RecipeSize, RecipeSize);
+    Rectangle GridRect(int n) => new(GridView.X + n % RecipeCols * RecipeStep, GridView.Y + n / RecipeCols * RecipeStep - gridScroll, RecipeSize, RecipeSize);
 
-    int MaxRecipeScroll => Math.Max(0, (recipes.Count + RecipeCols - 1) / RecipeCols * RecipeStep - RecipeView.Height);
+    int GridCount => Showing == Tab.Shop && Game1.activeClickableMenu is ShopMenu shop ? shop.forSale.Count : recipes.Count;
+
+    int MaxGridScroll => Math.Max(0, (GridCount + RecipeCols - 1) / RecipeCols * RecipeStep - GridView.Height);
 
     /// <summary>Known crafting recipes in the game's own order, rebuilt only when you learn one.</summary>
     void RefreshRecipes()
@@ -858,7 +906,7 @@ public class Panels
         recipeCount = Game1.player.craftingRecipes.Length;
         recipes = CraftingRecipe.craftingRecipes.Keys.Where(Game1.player.craftingRecipes.ContainsKey)
             .Select(n => new CraftingRecipe(n, false)).ToList();
-        recipeScroll = Math.Min(recipeScroll, MaxRecipeScroll);
+        gridScroll = Math.Min(gridScroll, MaxGridScroll);
     }
 
     Item RecipeIcon(CraftingRecipe r) => recipeIcons.TryGetValue(r.name, out var i) ? i : recipeIcons[r.name] = r.createItem();
@@ -867,39 +915,13 @@ public class Panels
     {
         RefreshRecipes();
         Card(b, 8, 58, 604, 196);
-        // Clip the grid to its window so part-scrolled rows don't spill over the cards.
-        var gd = b.GraphicsDevice;
-        b.End();
-        var oldScissor = gd.ScissorRectangle;
-        gd.ScissorRectangle = new Rectangle(RecipeView.X, RecipeView.Y + ContentShift, RecipeView.Width, RecipeView.Height);
-        b.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp, null, Clip, null, Matrix.CreateTranslation(0, ContentShift, 0));
-        int rows = Math.Max(3, (recipes.Count + RecipeCols - 1) / RecipeCols);
-        for (int n = 0; n < rows * RecipeCols; n++)
+        DrawGrid(b, recipes.Count, (n, r) =>
         {
-            var r = RecipeRect(n);
-            if (r.Bottom < RecipeView.Y || r.Y > RecipeView.Bottom) continue;
-            SlotFrame(b, r.X, r.Y, RecipeSize);
-            if (n >= recipes.Count) continue;
             var recipe = recipes[n];
             bool can = recipe.doesFarmerHaveIngredientsInInventory();
             Item(b, RecipeIcon(recipe), r.X + 4, r.Y + 4, 48, can ? 1f : 0.35f);
             if (recipe == picked) b.Draw(Game1.mouseCursors, r, new Rectangle(194, 388, 16, 16), Color.White);
-        }
-        b.End();
-        gd.ScissorRectangle = oldScissor;
-        b.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp, null, null, null, Matrix.CreateTranslation(0, ContentShift, 0));
-
-        // Same cue as the tab strip: fade plus arrow on edges with more recipes past them.
-        for (int side = 0; side < 2; side++)
-        {
-            if (side == 0 ? recipeScroll <= 0 : recipeScroll >= MaxRecipeScroll) continue;
-            for (int f = 0; f < 20; f++)
-            {
-                int fy = side == 0 ? RecipeView.Y + f : RecipeView.Bottom - 1 - f;
-                b.Draw(Game1.staminaRect, new Rectangle(RecipeView.X, fy, RecipeView.Width, 1), Paper * (1f - f / 20f));
-            }
-            Icon(b, Game1.mouseCursors, side == 0 ? ArrowUp : ArrowDown, ModEntry.W / 2 - 11, side == 0 ? RecipeView.Y - 2 : RecipeView.Bottom - 22, 2);
-        }
+        });
 
         Card(b, 8, 262, 604, 266);
         if (recipes.Count == 0) { Text(b, "No crafting recipes yet.", new Vector2(22, 276), Faint); return; }
@@ -930,14 +952,49 @@ public class Panels
         if (CurrentStatus is string st) Text(b, st, new Vector2(22, 474), Color.DarkRed);
     }
 
+    /// <summary>Scrolling 10-wide grid of slots clipped to GridView, with fade-and-arrow cues.</summary>
+    void DrawGrid(SpriteBatch b, int count, Action<int, Rectangle> cell)
+    {
+        // Clip the grid to its window so part-scrolled rows don't spill over the cards.
+        var gd = b.GraphicsDevice;
+        b.End();
+        var oldScissor = gd.ScissorRectangle;
+        gd.ScissorRectangle = new Rectangle(GridView.X, GridView.Y + ContentShift, GridView.Width, GridView.Height);
+        b.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp, null, Clip, null, Matrix.CreateTranslation(0, ContentShift, 0));
+        int rows = Math.Max(3, (count + RecipeCols - 1) / RecipeCols);
+        for (int n = 0; n < rows * RecipeCols; n++)
+        {
+            var r = GridRect(n);
+            if (r.Bottom < GridView.Y || r.Y > GridView.Bottom) continue;
+            SlotFrame(b, r.X, r.Y, RecipeSize);
+            if (n < count) cell(n, r);
+        }
+        b.End();
+        gd.ScissorRectangle = oldScissor;
+        b.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp, null, null, null, Matrix.CreateTranslation(0, ContentShift, 0));
+
+        // Same cue as the tab strip: fade plus arrow on edges with more recipes past them.
+        for (int side = 0; side < 2; side++)
+        {
+            if (side == 0 ? gridScroll <= 0 : gridScroll >= MaxGridScroll) continue;
+            for (int f = 0; f < 20; f++)
+            {
+                int fy = side == 0 ? GridView.Y + f : GridView.Bottom - 1 - f;
+                b.Draw(Game1.staminaRect, new Rectangle(GridView.X, fy, GridView.Width, 1), Paper * (1f - f / 20f));
+            }
+            Icon(b, Game1.mouseCursors, side == 0 ? ArrowUp : ArrowDown, ModEntry.W / 2 - 11, side == 0 ? GridView.Y - 2 : GridView.Bottom - 22, 2);
+        }
+
+    }
+
     static readonly RasterizerState Clip = new() { ScissorTestEnable = true, CullMode = CullMode.None };
 
     void TapCraft(int x, int y)
     {
         if (picked != null && CraftRect.Contains(x, y)) { Craft(picked); return; }
-        if (!RecipeView.Contains(x, y)) return;
+        if (!GridView.Contains(x, y)) return;
         for (int n = 0; n < recipes.Count; n++)
-            if (RecipeRect(n).Contains(x, y)) { picked = recipes[n]; return; }
+            if (GridRect(n).Contains(x, y)) { picked = recipes[n]; return; }
     }
 
     /// <summary>Same steps as the game's crafting page, but the result goes straight into the bag.</summary>
@@ -952,6 +1009,223 @@ public class Panels
         if (Game1.player.craftingRecipes.ContainsKey(r.name)) Game1.player.craftingRecipes[r.name] += r.numberProducedPerCraft;
         Game1.stats.checkForCraftingAchievements();
         Game1.playSound("coin");
+    }
+
+    // ---------- Tabs (settings) ----------
+
+    const int SetRowH = 76;
+    static Rectangle SetRow(int i) => new(8, 58 + i * SetRowH, 604, SetRowH - 6);
+    static Rectangle SetShow(int i) => new(300, 58 + i * SetRowH, 120, SetRowH - 6);
+    static Rectangle SetUp(int i) => new(430, 58 + i * SetRowH, 84, SetRowH - 6);
+    static Rectangle SetDown(int i) => new(520, 58 + i * SetRowH, 84, SetRowH - 6);
+
+    void DrawTabSettings(SpriteBatch b)
+    {
+        for (int i = 0; i < config.TabOrder.Count; i++)
+        {
+            var name = config.TabOrder[i];
+            bool shown = !config.HiddenTabs.Contains(name);
+            var r = SetRow(i);
+            IClickableMenu.drawTextureBox(b, Game1.mouseCursors, BoxSrc, r.X, r.Y, r.Width, r.Height, shown ? Color.White : new Color(200, 160, 120), 2f, false);
+            TabIcon(b, Enum.Parse<Tab>(name), r.X + 16, r.Y + 16);
+            Text(b, name, new Vector2(r.X + 64, r.Y + 22), shown ? Ink : Faint);
+            Icon(b, Game1.mouseCursors, shown ? CheckOn : CheckOff, SetShow(i).X, r.Y + 17, 4);
+            Text(b, "Show", new Vector2(SetShow(i).X + 42, r.Y + 22), shown ? Ink : Faint);
+            if (i > 0) Icon(b, Game1.mouseCursors, ArrowUp, SetUp(i).X + 26, r.Y + 17, 3);
+            if (i < config.TabOrder.Count - 1) Icon(b, Game1.mouseCursors, ArrowDown, SetDown(i).X + 26, r.Y + 17, 3);
+        }
+    }
+
+    void TapTabSettings(int x, int y)
+    {
+        for (int i = 0; i < config.TabOrder.Count; i++)
+        {
+            var name = config.TabOrder[i];
+            if (SetShow(i).Contains(x, y))
+            {
+                if (!config.HiddenTabs.Remove(name)) config.HiddenTabs.Add(name);
+            }
+            else if (SetUp(i).Contains(x, y) && i > 0) (config.TabOrder[i - 1], config.TabOrder[i]) = (name, config.TabOrder[i - 1]);
+            else if (SetDown(i).Contains(x, y) && i < config.TabOrder.Count - 1) (config.TabOrder[i + 1], config.TabOrder[i]) = (name, config.TabOrder[i + 1]);
+            else continue;
+            tabScroll = Math.Min(tabScroll, MaxTabScroll);
+            helper.WriteConfig(config);
+            Game1.playSound("drumkit6");
+            return;
+        }
+    }
+
+    // ---------- Choices (question dialogue on top) ----------
+
+    const int ChoiceH = 78;
+    static Rectangle ChoiceRect(int i) => new(8, 58 + i * ChoiceH, 604, ChoiceH - 6);
+
+    void DrawChoices(SpriteBatch b)
+    {
+        var d = (DialogueBox)Game1.activeClickableMenu;
+        for (int i = 0; i < Math.Min(d.responses.Length, 6); i++)
+        {
+            var r = ChoiceRect(i);
+            Card(b, r.X, r.Y, r.Width, r.Height);
+            float y = r.Y + (d.responses[i].responseText.Length > 40 ? 12 : 24);
+            Wrapped(b, d.responses[i].responseText, r.X + 20, ref y, r.Width - 40, Ink, 2);
+        }
+    }
+
+    static void TapChoices(int x, int y)
+    {
+        var d = (DialogueBox)Game1.activeClickableMenu;
+        for (int i = 0; i < Math.Min(d.responses.Length, 6); i++)
+        {
+            if (!ChoiceRect(i).Contains(x, y)) continue;
+            // Same as clicking the answer on top: first click finishes the typing, the next one answers.
+            if (d.characterIndexInDialogue < d.getCurrentString().Length - 1) { d.receiveLeftClick(0, 0); return; }
+            d.selectedResponse = i;
+            d.receiveLeftClick(0, 0);
+            return;
+        }
+    }
+
+    // ---------- Shop ----------
+
+    ISalable shopPick;
+    int shopBagRow;
+    static readonly Rectangle[] BuyRects = { new(296, 330, 96, 56), new(400, 330, 96, 56), new(504, 330, 96, 56) };
+    static readonly int[] BuyCounts = { 1, 5, 25 };
+    static Rectangle ShopBagRect(int c) => new(SlotX + c * SlotW, 432, SlotW, SlotH);
+    static readonly Rectangle ShopRowPrev = new(460, 404, 60, 28), ShopRowNext = new(540, 404, 60, 28);
+
+    void DrawShop(SpriteBatch b)
+    {
+        var shop = (ShopMenu)Game1.activeClickableMenu;
+        if (shopPick != null && !shop.forSale.Contains(shopPick)) shopPick = null;
+
+        Card(b, 8, 58, 604, 196);
+        DrawGrid(b, shop.forSale.Count, (n, r) =>
+        {
+            if (shop.forSale[n] is Item item) Item(b, item, r.X + 4, r.Y + 4, 48);
+            if (shop.forSale[n] == shopPick) b.Draw(Game1.mouseCursors, r, new Rectangle(194, 388, 16, 16), Color.White);
+        });
+
+        Card(b, 8, 262, 604, 132);
+        if (shopPick == null) Text(b, "Tap an item to buy it.", new Vector2(22, 276), Faint);
+        else
+        {
+            var stock = shop.itemPriceAndStock[shopPick];
+            SlotFrame(b, 22, 274, 64);
+            if (shopPick is Item pickItem) Item(b, pickItem, 22, 274, 64);
+            Text(b, shopPick.DisplayName, new Vector2(98, 276));
+            Icon(b, Game1.mouseCursors, Coin, 98, 308, 2);
+            Text(b, stock.Price.ToString(), new Vector2(120, 304));
+            if (stock.Stock != int.MaxValue) Text(b, $"{stock.Stock} left", new Vector2(190, 304), Faint);
+            int money = ShopMenu.getPlayerCurrencyAmount(Game1.player, shop.currency);
+            for (int i = 0; i < BuyRects.Length; i++)
+            {
+                var r = BuyRects[i];
+                bool afford = money >= stock.Price * BuyCounts[i];
+                IClickableMenu.drawTextureBox(b, Game1.mouseCursors, BoxSrc, r.X, r.Y, r.Width, r.Height, afford ? Color.White : new Color(200, 160, 120), 2f, false);
+                Text(b, $"Buy {BuyCounts[i]}", new Vector2(r.X + 14, r.Y + 16), afford ? Ink : Faint);
+            }
+        }
+
+        // Selling: one bag row at a time, through the shop's own sell click.
+        Card(b, 8, 402, 604, 126);
+        int rows = Math.Max(1, Game1.player.MaxItems / Cols);
+        shopBagRow = Math.Min(shopBagRow, rows - 1);
+        Text(b, "Bag - tap to sell" + (rows > 1 ? $"  (row {shopBagRow + 1}/{rows})" : ""), new Vector2(22, 406), Faint);
+        if (shopBagRow > 0) Icon(b, Game1.mouseCursors, ArrowLeft, ShopRowPrev.X + 18, ShopRowPrev.Y + 4, 2);
+        if (shopBagRow < rows - 1) Icon(b, Game1.mouseCursors, ArrowRight, ShopRowNext.X + 18, ShopRowNext.Y + 4, 2);
+        var items = Game1.player.Items;
+        for (int c = 0; c < Cols; c++)
+        {
+            int i = shopBagRow * Cols + c;
+            var r = ShopBagRect(c);
+            b.Draw(Game1.menuTexture, r, new Rectangle(128, 128, 64, 64), Color.White);
+            if (i < items.Count && items[i] is Item item)
+            {
+                // The shop greys out what it won't buy; match that.
+                bool sellable = shop.inventory.highlightMethod?.Invoke(item) ?? true;
+                Item(b, item, r.X + 1, r.Y + 6, 48, sellable ? 1f : 0.35f);
+                Count(b, item.Stack, r.Right, r.Bottom);
+            }
+        }
+    }
+
+    void TapShop(int x, int y)
+    {
+        var shop = (ShopMenu)Game1.activeClickableMenu;
+        if (ShopRowPrev.Contains(x, y)) { shopBagRow = Math.Max(0, shopBagRow - 1); return; }
+        if (ShopRowNext.Contains(x, y)) { shopBagRow++; return; }
+        for (int c = 0; c < Cols; c++)
+            if (ShopBagRect(c).Contains(x, y)) { ClickSlot(shop, shop.inventory, shopBagRow * Cols + c); return; }
+        if (shopPick != null)
+            for (int i = 0; i < BuyRects.Length; i++)
+                if (BuyRects[i].Contains(x, y)) { Buy(shop, shopPick, BuyCounts[i]); return; }
+        if (!GridView.Contains(x, y)) return;
+        for (int n = 0; n < shop.forSale.Count; n++)
+            if (GridRect(n).Contains(x, y)) { shopPick = shop.forSale[n]; return; }
+    }
+
+    /// <summary>Buys through the shop's own purchase code, clamped like its shift/ctrl-click bulk buy.</summary>
+    void Buy(ShopMenu shop, ISalable item, int count)
+    {
+        var stock = shop.itemPriceAndStock[item];
+        int money = ShopMenu.getPlayerCurrencyAmount(Game1.player, shop.currency);
+        count = Math.Min(count, Math.Max(1, money / Math.Max(1, stock.Price)));
+        count = Math.Min(Math.Min(count, Math.Max(1, stock.Stock)), item.maximumStackSize() is > 0 and var max ? max : count);
+        bool soldOut = helper.Reflection.GetMethod(shop, "tryToPurchaseItem").Invoke<bool>(item, shop.heldItem, count, 0, 0);
+        if (soldOut)
+        {
+            shop.itemPriceAndStock.Remove(item);
+            shop.forSale.Remove(item);
+        }
+        // The shop puts the purchase "in hand"; put it straight into the bag like gamepad mode does.
+        if (shop.heldItem is Item bought && Game1.player.addItemToInventoryBool(bought)) shop.heldItem = null;
+        else if (shop.heldItem != null) Status("Bag is full");
+    }
+
+    // ---------- Bag: shipping bin and geode layouts ----------
+
+    void DrawMenuBag(SpriteBatch b, string title, string hint, Item shown)
+    {
+        Card(b, 8, 58, 604, 198);
+        Text(b, title, new Vector2(22, 64), Faint);
+        if (shown != null)
+        {
+            SlotFrame(b, 22, 96, 64);
+            Item(b, shown, 22, 96, 64);
+            Text(b, shown.DisplayName, new Vector2(98, 112));
+        }
+        float y = shown != null ? 176 : 100;
+        Wrapped(b, CurrentStatus ?? hint, 22, ref y, 576, Ink, 3);
+
+        Card(b, 8, 260, 604, 198);
+        Text(b, "Bag", new Vector2(22, 266), Faint);
+        var menu = (MenuWithInventory)Game1.activeClickableMenu;
+        var items = Game1.player.Items;
+        for (int i = 0; i < 36; i++)
+        {
+            var r = StoreBagRect(i);
+            bool locked = i >= Game1.player.MaxItems;
+            b.Draw(Game1.menuTexture, r, new Rectangle(128, 128, 64, 64), locked ? Color.White * 0.35f : Color.White);
+            if (!locked && i < items.Count && items[i] is Item item)
+            {
+                bool usable = menu.inventory.highlightMethod?.Invoke(item) ?? true;
+                Item(b, item, r.X + 1, r.Y + 2, 48, usable ? 1f : 0.35f);
+                Count(b, item.Stack, r.Right, r.Bottom);
+            }
+        }
+    }
+
+    void TapMenuBag(int x, int y)
+    {
+        var menu = (MenuWithInventory)Game1.activeClickableMenu;
+        int i = Enumerable.Range(0, Game1.player.MaxItems).FirstOrDefault(n => StoreBagRect(n).Contains(x, y), -1);
+        if (i < 0) return;
+        ClickSlot(menu, menu.inventory, i);
+        // Geodes: the click above picks it up; drop it on the anvil like dragging it there.
+        if (menu is GeodeMenu geode && geode.heldItem != null)
+            geode.receiveLeftClick(geode.geodeSpot.bounds.Center.X, geode.geodeSpot.bounds.Center.Y);
     }
 
     // ---------- Aim ----------
@@ -970,7 +1244,7 @@ public class Panels
         var loc = Game1.currentLocation;
         var p = Game1.player.StandingPixel;
         int w0 = (int)(ModEntry.W / AimZoom), h0 = (int)(ModEntry.H / AimZoom);
-        aimView = new xTile.Dimensions.Rectangle(p.X - w0 / 2, p.Y - (int)((ModEntry.H + TabH) / 2 / AimZoom), w0, h0);
+        aimView = new xTile.Dimensions.Rectangle(p.X - w0 / 2, p.Y - (int)((AimBarY + TabH) / 2 / AimZoom), w0, h0);
         var old = Game1.viewport;
         b.End();
         // Some game draws (e.g. the swinging tool) go through Game1.spriteBatch directly, so
@@ -1025,10 +1299,10 @@ public class Panels
         Color dark = Color.Black * 0.45f, light = Color.White * 0.3f;
         for (float x = -Mod(aimView.X, 64) * AimZoom; x < ModEntry.W; x += tile)
         {
-            b.Draw(Game1.staminaRect, new Rectangle((int)x, TabH, 1, ModEntry.H - TabH), dark);
-            b.Draw(Game1.staminaRect, new Rectangle((int)x + 1, TabH, 1, ModEntry.H - TabH), light);
+            b.Draw(Game1.staminaRect, new Rectangle((int)x, TabH, 1, AimBarY - TabH), dark);
+            b.Draw(Game1.staminaRect, new Rectangle((int)x + 1, TabH, 1, AimBarY - TabH), light);
         }
-        for (float y = -Mod(aimView.Y, 64) * AimZoom; y < ModEntry.H; y += tile)
+        for (float y = -Mod(aimView.Y, 64) * AimZoom; y < AimBarY; y += tile)
         {
             b.Draw(Game1.staminaRect, new Rectangle(0, (int)y, ModEntry.W, 1), dark);
             b.Draw(Game1.staminaRect, new Rectangle(0, (int)y + 1, ModEntry.W, 1), light);
@@ -1052,6 +1326,8 @@ public class Panels
             b.Draw(Game1.staminaRect, new Rectangle(r.Right - edge, r.Y, edge, r.Height), c);
         }
 
+        DrawAimBar(b);
+
         if (Game1.player.ActiveObject is StardewValley.Objects.Furniture f && f.rotations.Value > 1)
         {
             IClickableMenu.drawTextureBox(b, Game1.mouseCursors, BoxSrc, RotateRect.X, RotateRect.Y, RotateRect.Width, RotateRect.Height, Color.White, 2f, false);
@@ -1060,7 +1336,28 @@ public class Panels
         }
     }
 
-    static readonly Rectangle RotateRect = new(456, 468, 156, 64);
+    static readonly Rectangle RotateRect = new(456, AimBarY - 72, 156, 64);
+
+    // Hotbar strip along the bottom of Aim, so you can swap tool or seed without leaving it.
+    const int AimBarY = 478;
+    static Rectangle AimSlot(int c) => new(SlotX + c * SlotW, AimBarY + 6, SlotW, 52);
+
+    static void DrawAimBar(SpriteBatch b)
+    {
+        Card(b, 8, AimBarY - 2, 604, ModEntry.H - AimBarY + 2);
+        var items = Game1.player.Items;
+        for (int c = 0; c < Cols; c++)
+        {
+            var r = AimSlot(c);
+            b.Draw(Game1.menuTexture, r, new Rectangle(128, 128, 64, 64), Color.White);
+            if (c < items.Count && items[c] is Item item)
+            {
+                Item(b, item, r.X + 1, r.Y + 2, 48);
+                Count(b, item.Stack, r.Right, r.Bottom);
+            }
+            if (c == Game1.player.CurrentToolIndex) b.Draw(Game1.mouseCursors, r, new Rectangle(194, 388, 16, 16), Color.White);
+        }
+    }
 
     static int Mod(int a, int m) => (a % m + m) % m;
 
@@ -1085,6 +1382,12 @@ public class Panels
     {
         // A menu on top owns the game; don't place or swing behind it.
         if (Game1.activeClickableMenu != null) return;
+        if (y >= AimBarY)
+        {
+            int c = Enumerable.Range(0, Cols).FirstOrDefault(n => AimSlot(n).Contains(x, y), -1);
+            if (c >= 0 && !Game1.player.UsingTool) Game1.player.CurrentToolIndex = c;
+            return;
+        }
         if (Game1.player.ActiveObject is StardewValley.Objects.Furniture hf && hf.rotations.Value > 1 && RotateRect.Contains(x, y))
         {
             hf.rotate();

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using Android.App;
 using Android.Graphics;
@@ -41,7 +42,7 @@ public class ModEntry : Mod
 
     public override void Entry(IModHelper helper)
     {
-        panels = new Panels(Monitor);
+        panels = new Panels(helper, Monitor);
         helper.Events.GameLoop.GameLaunched += (_, _) => OpenWindow();
         helper.Events.GameLoop.UpdateTicked += OnUpdateTicked;
     }
@@ -154,4 +155,12 @@ public class ModEntry : Mod
         d.SetFilterBitmap(false);
         return d;
     }
+}
+
+/// <summary>Saved to config.json: tab order, hidden tabs and the tab last open.</summary>
+public class ModConfig
+{
+    public List<string> TabOrder { get; set; } = new() { "Today", "Gifts", "Bag", "Craft", "Aim" };
+    public List<string> HiddenTabs { get; set; } = new();
+    public string LastTab { get; set; } = "Today";
 }
