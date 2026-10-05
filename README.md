@@ -5,6 +5,11 @@ running in [Cinderbox](https://github.com/Ekyso/Cinderbox).
 
 ![Title screen: the logo on top, the menu on the bottom](docs/screenshots/title.png)
 
+> [!CAUTION]
+> **This repository is the only official place to get this mod, and it's free.** If you paid for it,
+> ask for a refund. If you downloaded it anywhere else, it may have been changed: get it from the
+> [releases page](../../releases) instead, and point your friends here too.
+
 ## Why this exists
 
 A few dual-screen projects for handhelds have appeared recently that put basic features behind a
