@@ -735,7 +735,14 @@ public class Panels
     void DrawBag(SpriteBatch b)
     {
         if (Game1.activeClickableMenu is ItemGrabMenu { shippingBin: true })
-        { DrawMenuBag(b, "Shipping bin", "Tap an item to ship it. It's sold overnight.", Game1.getFarm().lastItemShipped, "Last shipped", null); return; }
+        {
+            var items0 = Game1.player.Items;
+            if (sellPick >= 0 && (sellPick >= items0.Count || items0[sellPick] == null)) sellPick = -1;
+            DrawMenuBag(b, "Shipping bin", sellPick >= 0 ? null : "Tap an item, choose how many, then Ship. It's sold overnight.",
+                sellPick >= 0 ? null : Game1.getFarm().lastItemShipped, "Last shipped", null);
+            if (sellPick >= 0) DrawAmountPicker(b, items0[sellPick], BinPickTop, "Ship", items0[sellPick].sellToStorePrice());
+            return;
+        }
         if (Game1.activeClickableMenu is GeodeMenu geode)
         {
             DrawMenuBag(b, "Clint - geodes", "Tap a geode to crack it open.", geode.geodeTreasure, "Last found",
@@ -864,7 +871,8 @@ public class Panels
 
     void TapBag(int x, int y)
     {
-        if (Game1.activeClickableMenu is ItemGrabMenu { shippingBin: true } or GeodeMenu) { TapMenuBag(x, y); return; }
+        if (Game1.activeClickableMenu is ItemGrabMenu { shippingBin: true }) { TapBin(x, y); return; }
+        if (Game1.activeClickableMenu is GeodeMenu) { TapMenuBag(x, y); return; }
         if (Storage is InventoryMenu store) { TapStorage(store, x, y); return; }
         if (StackRect.Contains(x, y) && OpenInventory == null) { QuickStack(); return; }
         int i = BagSlotAt(x, y);
@@ -1102,8 +1110,13 @@ public class Panels
     int shopBagRow;
     // Selling: the picked bag slot and how many of it to sell.
     int sellPick = -1, sellAmount;
-    static readonly Rectangle SellMinus = new(296, 270, 56, 52), SellPlus = new(436, 270, 56, 52), SellMax = new(500, 270, 100, 52),
-        SellButton = new(296, 328, 304, 58);
+    // Amount picker, laid out from the top of the card it sits in (shop detail card, or the bin card).
+    static Rectangle PickMinus(int top) => new(296, top + 8, 56, 52);
+    static Rectangle PickPlus(int top) => new(436, top + 8, 56, 52);
+    static Rectangle PickMax(int top) => new(500, top + 8, 100, 52);
+    static Rectangle PickButton(int top) => new(296, top + 66, 304, 58);
+    const int ShopPickTop = 262, BinPickTop = 92;
+    static Rectangle PickRegion(int top) => new(290, top, 320, 130);
     static readonly Rectangle[] BuyRects = { new(272, 330, 106, 56), new(384, 330, 106, 56), new(496, 330, 106, 56) };
     static readonly int[] BuyCounts = { 1, 5, 25 };
     static Rectangle ShopBagRect(int c) => new(SlotX + c * SlotW, 436, SlotW, SlotH - 2);
@@ -1124,7 +1137,7 @@ public class Panels
         Card(b, 8, 262, 604, 132);
         var items0 = Game1.player.Items;
         if (sellPick >= 0 && (sellPick >= items0.Count || items0[sellPick] == null)) sellPick = -1;
-        if (sellPick >= 0) DrawSellDetail(b, shop, items0[sellPick]);
+        if (sellPick >= 0) DrawAmountPicker(b, items0[sellPick], ShopPickTop, "Sell", SellUnitPrice(shop, items0[sellPick]));
         else if (shopPick == null) Text(b, "Tap an item to buy it, or a bag item to sell it.", new Vector2(22, 276), Faint);
         else
         {
@@ -1170,28 +1183,40 @@ public class Panels
         }
     }
 
-    void DrawSellDetail(SpriteBatch b, ShopMenu shop, Item item)
+    /// <summary>Item, price each, − / + / Max and a "{verb} N for Xg" button, from a card's top edge.</summary>
+    void DrawAmountPicker(SpriteBatch b, Item item, int top, string verb, int unitPrice)
     {
-        SlotFrame(b, 22, 274, 64);
-        Item(b, item, 22, 274, 64);
-        float ny = 272;
+        SlotFrame(b, 22, top + 12, 64);
+        Item(b, item, 22, top + 12, 64);
+        float ny = top + 10;
         Wrapped(b, item.DisplayName, 98, ref ny, 190, Ink, 2);
-        Icon(b, Game1.mouseCursors, Coin, 98, 330, 2);
-        Text(b, $"{SellUnitPrice(shop, item)} each", new Vector2(120, 326), Faint);
-        Text(b, $"Have {item.Stack}", new Vector2(98, 352), Faint);
+        Icon(b, Game1.mouseCursors, Coin, 98, top + 68, 2);
+        Text(b, $"{unitPrice} each", new Vector2(120, top + 64), Faint);
+        Text(b, $"Have {item.Stack}", new Vector2(98, top + 90), Faint);
 
-        foreach (var (r, label) in new[] { (SellMinus, "-"), (SellPlus, "+"), (SellMax, "Max") })
+        foreach (var (r, label) in new[] { (PickMinus(top), "-"), (PickPlus(top), "+"), (PickMax(top), "Max") })
         {
             Card(b, r.X, r.Y, r.Width, r.Height);
             var size = Game1.smallFont.MeasureString(label);
             Text(b, label, new Vector2(r.X + (r.Width - size.X) / 2, r.Y + (r.Height - size.Y) / 2 + 2));
         }
         var amt = sellAmount.ToString();
-        Text(b, amt, new Vector2(394 - Game1.smallFont.MeasureString(amt).X / 2, 284));
+        Text(b, amt, new Vector2(394 - Game1.smallFont.MeasureString(amt).X / 2, top + 22));
 
-        IClickableMenu.drawTextureBox(b, Game1.mouseCursors, BoxSrc, SellButton.X, SellButton.Y, SellButton.Width, SellButton.Height, Color.White, 2f, false);
-        Icon(b, Game1.mouseCursors, Coin, SellButton.X + 14, SellButton.Y + 20, 2);
-        Text(b, $"Sell {sellAmount} for {SellUnitPrice(shop, item) * sellAmount}g", new Vector2(SellButton.X + 40, SellButton.Y + 16));
+        var btn = PickButton(top);
+        IClickableMenu.drawTextureBox(b, Game1.mouseCursors, BoxSrc, btn.X, btn.Y, btn.Width, btn.Height, Color.White, 2f, false);
+        Icon(b, Game1.mouseCursors, Coin, btn.X + 14, btn.Y + 20, 2);
+        Text(b, $"{verb} {sellAmount} for {unitPrice * sellAmount}g", new Vector2(btn.X + 40, btn.Y + 16));
+    }
+
+    /// <summary>Handles − / + / Max taps; returns true if the action button was tapped.</summary>
+    bool TapAmountPicker(Item item, int top, int x, int y)
+    {
+        if (PickMinus(top).Contains(x, y)) sellAmount = Math.Max(1, sellAmount - 1);
+        else if (PickPlus(top).Contains(x, y)) sellAmount = Math.Min(item.Stack, sellAmount + 1);
+        else if (PickMax(top).Contains(x, y)) sellAmount = item.Stack;
+        else return PickButton(top).Contains(x, y);
+        return false;
     }
 
     int SellUnitPrice(ShopMenu shop, Item item) =>
@@ -1246,12 +1271,10 @@ public class Panels
             sellPick = i; sellAmount = it.Stack; shopPick = null;
             return;
         }
-        if (sellPick >= 0 && Game1.player.Items[sellPick] is Item selling)
+        if (sellPick >= 0 && Game1.player.Items[sellPick] is Item selling && PickRegion(ShopPickTop).Contains(x, y))
         {
-            if (SellMinus.Contains(x, y)) { sellAmount = Math.Max(1, sellAmount - 1); return; }
-            if (SellPlus.Contains(x, y)) { sellAmount = Math.Min(selling.Stack, sellAmount + 1); return; }
-            if (SellMax.Contains(x, y)) { sellAmount = selling.Stack; return; }
-            if (SellButton.Contains(x, y)) { Sell(shop, sellPick, sellAmount); return; }
+            if (TapAmountPicker(selling, ShopPickTop, x, y)) Sell(shop, sellPick, sellAmount);
+            return;
         }
         if (shopPick != null)
             for (int i = 0; i < BuyRects.Length; i++)
@@ -1286,7 +1309,7 @@ public class Panels
         Card(b, 8, 58, 604, 202);
         Text(b, title, new Vector2(22, 64), Faint);
         float y = 96;
-        Wrapped(b, CurrentStatus ?? hint, 22, ref y, 576, Ink, 2);
+        if (hint != null || CurrentStatus != null) Wrapped(b, CurrentStatus ?? hint, 22, ref y, 576, Ink, 2);
         if (detail != null)
         {
             Icon(b, Game1.mouseCursors, Coin, 22, (int)y + 8, 2);
@@ -1315,7 +1338,42 @@ public class Panels
                 Item(b, item, r.X + 1, r.Y + 2, 48, usable ? 1f : 0.35f);
                 Count(b, item.Stack, r.Right, r.Bottom);
             }
+            if (i == sellPick && menu is ItemGrabMenu) b.Draw(Game1.mouseCursors, r, new Rectangle(194, 388, 16, 16), Color.White);
         }
+    }
+
+    void TapBin(int x, int y)
+    {
+        var menu = (ItemGrabMenu)Game1.activeClickableMenu;
+        var items = Game1.player.Items;
+        if (sellPick >= 0 && items[sellPick] is Item picked && PickRegion(BinPickTop).Contains(x, y))
+        {
+            if (TapAmountPicker(picked, BinPickTop, x, y)) Ship(sellPick, sellAmount);
+            return;
+        }
+        int i = Enumerable.Range(0, Game1.player.MaxItems).FirstOrDefault(n => StoreBagRect(n).Contains(x, y), -1);
+        if (i < 0 || items[i] is not Item it) return;
+        if (!(menu.inventory.highlightMethod?.Invoke(it) ?? true)) { Status($"{it.DisplayName} can't be shipped"); return; }
+        sellPick = i; sellAmount = it.Stack;
+    }
+
+    /// <summary>Ships part or all of a stack through the farm's own shipItem (bin, last-shipped, animation).</summary>
+    void Ship(int index, int count)
+    {
+        var items = Game1.player.Items;
+        if (items[index] is not Item item) return;
+        count = Math.Clamp(count, 1, item.Stack);
+        var part = item;
+        if (count < item.Stack)
+        {
+            part = item.getOne();
+            part.Stack = count;
+            item.Stack -= count;
+        }
+        Game1.getFarm().shipItem(part, Game1.player);
+        Game1.playSound("Ship");
+        if (items[index] == null) sellPick = -1;
+        else sellAmount = Math.Min(sellAmount, items[index].Stack);
     }
 
     void TapMenuBag(int x, int y)
