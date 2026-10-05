@@ -12,13 +12,20 @@ using SObject = StardewValley.Object;
 
 namespace DualScreen;
 
-/// <summary>The three bottom-screen panels, drawn with the game's own art at 620x540.</summary>
+/// <summary>The bottom-screen panels, drawn with the game's own UI sprites on a fixed 620x540 layout.</summary>
 public class Panels
 {
     enum Tab { Today, Nearby, Bag, Aim }
-    static readonly string[] TabNames = { "Today", "Nearby", "Bag", "Aim" };
 
-    const int TabH = 44, Pad = 12, Slot = 48, Cols = 12;
+    // Game menu tab sprites (Cursors.png): calendar, social heart, backpack, crafting hammer.
+    static readonly Rectangle[] TabIcons = { new(48, 384, 16, 16), new(32, 368, 16, 16), new(0, 368, 16, 16), new(64, 368, 16, 16) };
+    const int TabSize = 48, TabStep = 52, TabH = 52, Slot = 48, Cols = 12;
+
+    // Cursors.png sprites.
+    static readonly Rectangle BoxSrc = new(384, 373, 18, 18), Dice = new(381, 361, 10, 10), Coin = new(193, 373, 9, 10),
+        HeartFull = new(211, 428, 7, 6), HeartEmpty = new(218, 428, 7, 6), Gift = new(229, 410, 14, 14),
+        CheckOff = new(227, 425, 9, 9), CheckOn = new(236, 425, 9, 9);
+
     static readonly Color Ink = new(86, 22, 12);
     static readonly Color Paper = new(255, 214, 147);
     static readonly Color Faint = new(150, 90, 60);
@@ -31,7 +38,8 @@ public class Panels
 
     // "Who loves this" scans every villager, so only redo it when the held item changes.
     string lovedFor;
-    List<string> lovedBy = new(), likedBy = new(), bundles = new();
+    List<NPC> lovedBy = new(), likedBy = new();
+    List<string> bundles = new();
 
     public int RedrawInterval => Showing switch { Tab.Aim => 2, Tab.Bag => 15, _ => 30 };
 
@@ -54,7 +62,8 @@ public class Panels
         if (Idle) return;
         if (y < TabH)
         {
-            if (OpenInventory == null) tab = (Tab)Math.Clamp(x * TabNames.Length / ModEntry.W, 0, TabNames.Length - 1);
+            int i = (x - 8) / TabStep;
+            if (OpenInventory == null && x >= 8 && i < TabIcons.Length) tab = (Tab)i;
             return;
         }
         if (Showing == Tab.Bag) TapBag(x, y);
@@ -66,15 +75,14 @@ public class Panels
         if (Showing is not Tab shown) { DrawLogo(b); return; }
 
         b.Draw(Game1.staminaRect, new Rectangle(0, 0, ModEntry.W, ModEntry.H), Paper);
-        var area = new Rectangle(Pad, TabH + Pad, ModEntry.W - Pad * 2, ModEntry.H - TabH - Pad * 2);
         switch (shown)
         {
-            case Tab.Today: DrawToday(b, area); break;
-            case Tab.Nearby: DrawNearby(b, area); break;
-            case Tab.Bag: DrawBag(b, area); break;
+            case Tab.Today: DrawToday(b); break;
+            case Tab.Nearby: DrawNearby(b); break;
+            case Tab.Bag: DrawBag(b); break;
             case Tab.Aim: DrawAim(b); break;
         }
-        DrawTabs(b, shown);
+        DrawHeader(b, shown);
     }
 
     // ---------- shared ----------
@@ -86,76 +94,142 @@ public class Panels
         b.Draw(logo, new Vector2((ModEntry.W - src.Width) / 2, (ModEntry.H - src.Height) / 2), src, Color.White * 0.6f);
     }
 
-    void DrawTabs(SpriteBatch b, Tab shown)
+    /// <summary>Game-style tabs on the left; date, weather, time and money on the right.</summary>
+    static void DrawHeader(SpriteBatch b, Tab shown)
     {
-        int w = ModEntry.W / TabNames.Length;
-        for (int i = 0; i < TabNames.Length; i++)
+        b.Draw(Game1.staminaRect, new Rectangle(0, 0, ModEntry.W, TabH), new Color(214, 147, 86));
+        for (int i = 0; i < TabIcons.Length; i++)
         {
-            bool on = (Tab)i == shown;
-            b.Draw(Game1.staminaRect, new Rectangle(i * w, 0, w, TabH), on ? Paper : new Color(214, 147, 86));
-            var size = Game1.smallFont.MeasureString(TabNames[i]);
-            Text(b, TabNames[i], new Vector2(i * w + (w - size.X) / 2, (TabH - size.Y) / 2 + 2), on ? Ink : Faint);
+            // Like the game menu: the open tab drops down to meet the page.
+            int y = (Tab)i == shown ? 6 : -2;
+            Icon(b, Game1.mouseCursors, TabIcons[i], 8 + i * TabStep, y, 3);
         }
         b.Draw(Game1.staminaRect, new Rectangle(0, TabH - 2, ModEntry.W, 2), Ink);
+
+        Text(b, $"{Utility.getSeasonNameFromNumber(Game1.seasonIndex)} {Game1.dayOfMonth}", new Vector2(226, 14));
+        Text(b, Game1.getTimeOfDayString(Game1.timeOfDay), new Vector2(338, 14), Faint);
+        WeatherIcon(b, Game1.weatherIcon, 440, 14, 3);
+        Icon(b, Game1.mouseCursors, Coin, 490, 13, 3);
+        Text(b, Game1.player.Money.ToString("N0"), new Vector2(520, 14));
     }
+
+    static void Icon(SpriteBatch b, Texture2D tex, Rectangle src, int x, int y, float scale) =>
+        b.Draw(tex, new Vector2(x, y), src, Color.White, 0, Vector2.Zero, scale, SpriteEffects.None, 0);
+
+    static void WeatherIcon(SpriteBatch b, int icon, int x, int y, float scale)
+    {
+        if (icon == 999) Icon(b, Game1.mouseCursors_1_6, new Rectangle(243, 293, 12, 8), x, y, scale);
+        else Icon(b, Game1.mouseCursors, new Rectangle(317 + 12 * icon, 421, 12, 8), x, y, scale);
+    }
+
+    /// <summary>The game's tooltip box, used as a card frame.</summary>
+    static void Card(SpriteBatch b, int x, int y, int w, int h) =>
+        IClickableMenu.drawTextureBox(b, Game1.mouseCursors, BoxSrc, x, y, w, h, Color.White, 2f, false);
+
+    static void SlotFrame(SpriteBatch b, int x, int y, int size) =>
+        b.Draw(Game1.menuTexture, new Rectangle(x, y, size, size), new Rectangle(128, 128, 64, 64), Color.White);
 
     static void Text(SpriteBatch b, string s, Vector2 at, Color? c = null) =>
         b.DrawString(Game1.smallFont, s, at, c ?? Ink);
 
     static float Line => Game1.smallFont.LineSpacing;
 
-    static void Heading(SpriteBatch b, string s, ref float y, int x)
+    /// <summary>Draws an item so its icon fills a size-by-size box at (x, y).</summary>
+    static void Item(SpriteBatch b, Item item, int x, int y, int size = 48, float alpha = 1f)
     {
-        Text(b, s, new Vector2(x, y), Faint);
-        y += Line;
+        float scale = size / 64f;
+        item.drawInMenu(b, new Vector2(x - 32 * (1 - scale), y - 32 * (1 - scale)), scale, alpha, 0.9f, StackDrawType.Hide, Color.White, false);
     }
 
-    static void Item(SpriteBatch b, Item item, int x, int y, float scale = 0.75f) =>
-        item.drawInMenu(b, new Vector2(x - 8, y - 8), scale, 1f, 0.9f, StackDrawType.Hide, Color.White, false);
+    static void Count(SpriteBatch b, int n, int right, int bottom)
+    {
+        if (n > 1) Utility.drawTinyDigits(n, b, new Vector2(right - Utility.getWidthOfTinyDigitString(n, 2f) - 2, bottom - 14), 2f, 1f, Color.White);
+    }
 
-    static void Mugshot(SpriteBatch b, NPC npc, int x, int y)
+    /// <summary>Head-and-shoulders crop of a villager's sprite, 32x32.</summary>
+    static void Head(SpriteBatch b, NPC npc, int x, int y)
     {
         var src = npc.getMugShotSourceRect();
-        b.Draw(npc.Sprite.Texture, new Vector2(x, y), src, Color.White, 0, Vector2.Zero, 2f, SpriteEffects.None, 0);
+        src.Height = 16;
+        Icon(b, npc.Sprite.Texture, src, x, y, 2);
+    }
+
+    static void Portrait(SpriteBatch b, NPC npc, int x, int y)
+    {
+        SlotFrame(b, x, y, 72);
+        if (npc.Portrait != null) Icon(b, npc.Portrait, new Rectangle(0, 0, 64, 64), x + 4, y + 4, 1);
+        else Head(b, npc, x + 20, y + 20);
+    }
+
+    static void Hearts(SpriteBatch b, int hearts, int x, int y)
+    {
+        for (int i = 0; i < 10; i++) Icon(b, Game1.mouseCursors, i < hearts ? HeartFull : HeartEmpty, x + i * 16, y, 2);
+    }
+
+    /// <summary>Word-wraps to a fixed width, cutting off after <paramref name="maxLines"/>.</summary>
+    static void Wrapped(SpriteBatch b, string s, int x, ref float y, int width, Color c, int maxLines)
+    {
+        var lines = Game1.parseText(s, Game1.smallFont, width).Split('\n');
+        for (int i = 0; i < Math.Min(lines.Length, maxLines); i++)
+        {
+            string line = i == maxLines - 1 && lines.Length > maxLines ? lines[i].TrimEnd(',', ' ') + "..." : lines[i];
+            Text(b, line, new Vector2(x, y), c);
+            y += Line;
+        }
     }
 
     // ---------- Today ----------
 
-    void DrawToday(SpriteBatch b, Rectangle a)
+    void DrawToday(SpriteBatch b)
     {
-        float y = a.Y;
-        Text(b, $"{Utility.getSeasonNameFromNumber(Game1.seasonIndex)} {Game1.dayOfMonth}, Year {Game1.year}", new Vector2(a.X, y));
-        b.Draw(Game1.mouseCursors, new Vector2(a.Right - 52, y + 2), new Rectangle(317 + 12 * Game1.weatherIcon, 421, 12, 8), Color.White, 0, Vector2.Zero, 4f, SpriteEffects.None, 0);
-        y += Line + 4;
+        // Row 1: luck, tomorrow's weather, crops.
+        Card(b, 8, 58, 196, 76);
+        Icon(b, Game1.mouseCursors, Dice, 22, 74, 4);
+        Text(b, "Luck", new Vector2(70, 68), Faint);
+        Text(b, Luck(Game1.player.DailyLuck), new Vector2(70, 94), LuckColor(Game1.player.DailyLuck));
 
-        Text(b, $"Luck: {Luck(Game1.player.DailyLuck)}", new Vector2(a.X, y));
-        Text(b, $"Tomorrow: {Weather(Game1.weatherForTomorrow)}", new Vector2(a.X + a.Width / 2, y));
-        y += Line + 10;
+        Card(b, 212, 58, 196, 76);
+        WeatherIcon(b, TomorrowIcon(Game1.weatherForTomorrow), 224, 80, 3);
+        Text(b, "Tomorrow", new Vector2(270, 68), Faint);
+        Text(b, Weather(Game1.weatherForTomorrow), new Vector2(270, 94));
 
-        Heading(b, "Crops", ref y, a.X);
-        var (ready, dry) = Crops();
-        Text(b, ready == 0 && dry == 0 ? "Nothing to do" : $"{ready} ready to harvest   {dry} need water", new Vector2(a.X, y));
-        y += Line + 10;
+        Card(b, 416, 58, 196, 76);
+        var (ready, readyItem, dry) = Crops();
+        Item(b, readyItem ?? (parsnip ??= ItemRegistry.Create("(O)24")), 428, 68, 32, readyItem == null ? 0.35f : 1f);
+        Text(b, ready > 0 ? $"{ready} ready" : "None ready", new Vector2(466, 68), ready > 0 ? Color.DarkGreen : Faint);
+        Item(b, waterCan ??= ItemRegistry.Create("(T)WateringCan"), 428, 98, 32);
+        Text(b, dry > 0 ? $"{dry} dry" : "All watered", new Vector2(466, 98), dry > 0 ? Color.DarkRed : Faint);
 
-        Heading(b, "Coming up", ref y, a.X);
-        foreach (var line in Events()) { Text(b, line, new Vector2(a.X, y)); y += Line; }
-        y += 10;
-
-        Heading(b, "Birthdays", ref y, a.X);
-        var soon = Birthdays().ToList();
-        if (soon.Count == 0) Text(b, "None this week", new Vector2(a.X, y));
-        int x = a.X;
-        foreach (var (npc, inDays) in soon)
+        // Row 2: what's on in the next few days.
+        Card(b, 8, 142, 604, 132);
+        Text(b, "Coming up", new Vector2(22, 150), Faint);
+        float y = 176;
+        foreach (var (icon, line) in Events().Take(3))
         {
-            if (x + 140 > a.Right) break;
-            Mugshot(b, npc, x, (int)y);
+            icon(b, 22, (int)y);
+            Text(b, line, new Vector2(62, y + 2));
+            y += 32;
+        }
+
+        // Row 3: birthdays this week, one fixed cell each.
+        Card(b, 8, 282, 604, 250);
+        Text(b, "Birthdays this week", new Vector2(22, 290), Faint);
+        var soon = Birthdays().Take(4).ToList();
+        if (soon.Count == 0) Text(b, "None", new Vector2(22, 320));
+        for (int i = 0; i < soon.Count; i++)
+        {
+            var (npc, inDays) = soon[i];
+            int cx = 22 + i * 148;
+            Portrait(b, npc, cx, 320);
+            Text(b, npc.displayName, new Vector2(cx, 398));
             bool gifted = Game1.player.friendshipData.TryGetValue(npc.Name, out var f) && f.GiftsToday > 0;
-            string when = inDays == 0 ? (gifted ? "Today, gifted" : "Today!") : inDays == 1 ? "Tomorrow" : $"In {inDays} days";
-            Text(b, npc.displayName, new Vector2(x + 40, y));
-            Text(b, when, new Vector2(x + 40, y + Line), inDays == 0 && !gifted ? Color.DarkRed : Faint);
-            x += 200;
+            string when = inDays switch { 0 => "Today!", 1 => "Tomorrow", _ => $"In {inDays} days" };
+            Text(b, when, new Vector2(cx, 422), inDays == 0 && !gifted ? Color.DarkRed : Faint);
+            if (inDays == 0) Icon(b, Game1.mouseCursors, gifted ? CheckOn : Gift, cx, 450, 2);
         }
     }
+
+    Item waterCan, tv, parsnip;
 
     static string Luck(double luck) => luck switch
     {
@@ -165,6 +239,8 @@ public class Panels
         >= -0.07 => "Bad",
         _ => "Very bad",
     };
+
+    static Color LuckColor(double luck) => luck > 0.02 ? Color.DarkGreen : luck < -0.02 ? Color.DarkRed : Ink;
 
     static string Weather(string w) => w switch
     {
@@ -178,9 +254,23 @@ public class Panels
         _ => "Sunny",
     };
 
-    static (int ready, int dry) Crops()
+    // Same icon indices Game1.updateWeatherIcon uses for today.
+    static int TomorrowIcon(string w) => w switch
+    {
+        "Rain" => 4,
+        "Storm" => 5,
+        "Snow" => 7,
+        "Wind" => Game1.IsFall ? 6 : Game1.IsWinter ? 7 : 3,
+        "Festival" => 1,
+        "Wedding" => 0,
+        "GreenRain" => 999,
+        _ => 2,
+    };
+
+    static (int ready, Item readyItem, int dry) Crops()
     {
         int ready = 0, dry = 0;
+        var harvests = new Dictionary<string, int>();
         foreach (var loc in new[] { Game1.getFarm(), Game1.getLocationFromName("Greenhouse") })
         {
             if (loc == null) continue;
@@ -190,28 +280,35 @@ public class Panels
             foreach (var d in dirts)
             {
                 if (d?.crop == null || d.crop.dead.Value) continue;
-                if (d.readyForHarvest()) ready++;
+                if (d.readyForHarvest())
+                {
+                    ready++;
+                    string id = d.crop.indexOfHarvest.Value;
+                    if (id != null) harvests[id] = harvests.GetValueOrDefault(id) + 1;
+                }
                 else if (!rain && d.needsWatering() && !d.isWatered()) dry++;
             }
         }
-        return (ready, dry);
+        // Show the crop you have most of.
+        var top = harvests.OrderByDescending(h => h.Value).Select(h => h.Key).FirstOrDefault();
+        return (ready, top == null ? null : ItemRegistry.Create(top, allowNull: true), dry);
     }
 
-    static IEnumerable<string> Events()
+    IEnumerable<(Action<SpriteBatch, int, int> icon, string line)> Events()
     {
         var festivals = DataLoader.Festivals_FestivalDates(Game1.temporaryContent);
-        var lines = new List<string>();
         for (int i = 0; i <= 2; i++)
         {
             int day = Game1.dayOfMonth + i;
             if (day > 28) break;
             string when = i == 0 ? "Today" : i == 1 ? "Tomorrow" : "In 2 days";
-            if (festivals.TryGetValue($"{Game1.currentSeason}{day}", out var name)) lines.Add($"{when}: {name}");
-            if (day % 7 is 5 or 0) lines.Add($"{when}: Traveling cart");
+            if (festivals.TryGetValue($"{Game1.currentSeason}{day}", out var name))
+                yield return ((b, x, y) => Icon(b, Game1.mouseCursors, TabIcons[0], x, y - 2, 2), $"{when}: {name}");
+            if (day % 7 is 5 or 0)
+                yield return ((b, x, y) => Icon(b, Game1.mouseCursors, Coin, x + 4, y, 3), $"{when}: Traveling cart");
+            if (i == 0 && day % 7 == 0)
+                yield return ((b, x, y) => Item(b, tv ??= ItemRegistry.Create("(F)1466"), x, y - 2, 32), "Today: new Queen of Sauce recipe");
         }
-        if (Game1.dayOfMonth % 7 == 0) lines.Add("Today: new Queen of Sauce recipe");
-        if (lines.Count == 0) lines.Add("Nothing special");
-        return lines.Take(4);
     }
 
     static IEnumerable<(NPC npc, int inDays)> Birthdays()
@@ -231,75 +328,88 @@ public class Panels
 
     // ---------- Nearby ----------
 
-    void DrawNearby(SpriteBatch b, Rectangle a)
+    void DrawNearby(SpriteBatch b)
     {
-        float y = a.Y;
+        // Left card: the held item and who wants it.
+        Card(b, 8, 58, 296, 474);
         var held = Game1.player.ActiveObject;
-        if (held != null && !held.bigCraftable.Value)
+        if (held == null || held.bigCraftable.Value)
+            Text(b, "Hold an item to see\nwho loves it.", new Vector2(22, 70), Faint);
+        else
         {
             RefreshHeld(held);
-            Item(b, held, a.X, (int)y);
-            Text(b, held.DisplayName, new Vector2(a.X + 52, y));
-            Text(b, $"Sells for {held.sellToStorePrice()}g", new Vector2(a.X + 52, y + Line), Faint);
-            y += 64;
-            if (lovedBy.Count > 0) Wrapped(b, "Loved by " + string.Join(", ", lovedBy), a, ref y, Ink, 2);
-            if (likedBy.Count > 0) Wrapped(b, "Liked by " + string.Join(", ", likedBy), a, ref y, Faint, 2);
-            if (bundles.Count > 0) Wrapped(b, "Needed for " + string.Join(", ", bundles), a, ref y, Color.DarkGreen, 2);
-            y += 12;
+            SlotFrame(b, 22, 70, 64);
+            Item(b, held, 22, 70, 64);
+            float ny = 72;
+            Wrapped(b, held.DisplayName, 96, ref ny, 196, Ink, 2);
+            Icon(b, Game1.mouseCursors, Coin, 96, 122, 2);
+            Text(b, held.sellToStorePrice().ToString(), new Vector2(118, 118));
+
+            HeadsRow(b, "Loves it", HeartFull, lovedBy, 150);
+            HeadsRow(b, "Likes it", HeartEmpty, likedBy, 250);
+            if (bundles.Count > 0)
+            {
+                Text(b, "Bundle", new Vector2(22, 350), Faint);
+                float by = 374;
+                Wrapped(b, string.Join(", ", bundles), 22, ref by, 268, Color.DarkGreen, 5);
+            }
         }
 
+        // Right card: the nearest villager.
+        Card(b, 316, 58, 296, 474);
         var npc = NearestVillager(8);
-        if (npc == null)
-        {
-            Text(b, held == null ? "Hold an item or walk up to someone." : "Nobody nearby.", new Vector2(a.X, y), Faint);
-            return;
-        }
+        if (npc == null) { Text(b, "Nobody nearby.", new Vector2(330, 70), Faint); return; }
 
-        Mugshot(b, npc, a.X, (int)y);
+        Portrait(b, npc, 330, 70);
+        Text(b, npc.displayName, new Vector2(412, 72));
         Game1.player.friendshipData.TryGetValue(npc.Name, out var f);
-        int hearts = (f?.Points ?? 0) / NPC.friendshipPointsPerHeartLevel;
-        Text(b, $"{npc.displayName}   {hearts} hearts", new Vector2(a.X + 40, y));
-        string gifts = f == null ? "Not met yet" : f.GiftsToday > 0 ? "Gifted today" : $"Gifts this week: {f.GiftsThisWeek}/2";
-        if (npc.isBirthday()) gifts += "   Birthday today!";
-        Text(b, gifts, new Vector2(a.X + 40, y + Line), Faint);
-        y += Line * 2 + 8;
+        Hearts(b, (f?.Points ?? 0) / NPC.friendshipPointsPerHeartLevel, 412, 104);
+        if (f == null) Text(b, "Not met yet", new Vector2(412, 120), Faint);
+        else
+        {
+            // Same gift/week markers as the social page.
+            Icon(b, Game1.mouseCursors, Gift, 412, 120, 2);
+            Icon(b, Game1.mouseCursors, f.GiftsThisWeek >= 1 ? CheckOn : CheckOff, 446, 124, 2);
+            Icon(b, Game1.mouseCursors, f.GiftsThisWeek >= 2 ? CheckOn : CheckOff, 468, 124, 2);
+            if (npc.isBirthday()) Text(b, "Birthday!", new Vector2(496, 122), Color.DarkRed);
+        }
 
         if (held != null && npc.CanReceiveGifts())
         {
-            Text(b, $"Your {held.DisplayName}: {Taste(npc.getGiftTasteForThisItem(held))}", new Vector2(a.X, y));
-            y += Line + 4;
+            int t = npc.getGiftTasteForThisItem(held);
+            Icon(b, Game1.mouseCursors, t == NPC.gift_taste_love || t == NPC.gift_taste_like ? HeartFull : HeartEmpty, 330, 160, 2);
+            Text(b, Taste(t), new Vector2(350, 152), t == NPC.gift_taste_love ? Color.DarkGreen : t >= NPC.gift_taste_dislike && t != 8 ? Color.DarkRed : Ink);
         }
 
-        Heading(b, "Loves", ref y, a.X);
-        int x = a.X;
-        foreach (var item in Loves(npc))
+        Text(b, "Loves", new Vector2(330, 184), Faint);
+        int i = 0;
+        foreach (var item in Loves(npc).Take(30))
         {
-            if (x + Slot > a.Right) { x = a.X; y += Slot; }
-            if (y + Slot > a.Bottom) break;
-            Item(b, item, x, (int)y);
-            x += Slot;
+            int x = 330 + i % 6 * 46, y = 210 + i / 6 * 46;
+            SlotFrame(b, x, y, 44);
+            Item(b, item, x + 2, y + 2, 40);
+            i++;
         }
     }
 
-    /// <summary>Word-wraps to the panel width, cutting off after <paramref name="maxLines"/>.</summary>
-    static void Wrapped(SpriteBatch b, string s, Rectangle a, ref float y, Color c, int maxLines)
+    /// <summary>A labelled row of villager heads, fixed at 8 per row and two rows.</summary>
+    static void HeadsRow(SpriteBatch b, string label, Rectangle icon, List<NPC> npcs, int y)
     {
-        var lines = Game1.parseText(s, Game1.smallFont, a.Width).Split('\n');
-        for (int i = 0; i < Math.Min(lines.Length, maxLines); i++)
-        {
-            string line = i == maxLines - 1 && lines.Length > maxLines ? lines[i].TrimEnd(',', ' ') + "..." : lines[i];
-            Text(b, line, new Vector2(a.X, y), c);
-            y += Line;
-        }
+        Icon(b, Game1.mouseCursors, icon, 22, y + 6, 2);
+        Text(b, label, new Vector2(42, y), Faint);
+        if (npcs.Count == 0) { Text(b, "Nobody", new Vector2(130, y), Faint); return; }
+        for (int i = 0; i < Math.Min(npcs.Count, 16); i++)
+            Head(b, npcs[i], 22 + i % 8 * 34, y + 26 + i / 8 * 34);
+        if (npcs.Count > 16) Text(b, $"+{npcs.Count - 16}", new Vector2(240, y), Faint);
     }
 
     static string Taste(int t) => t switch
     {
-        NPC.gift_taste_love => "loves it",
-        NPC.gift_taste_like => "likes it",
-        NPC.gift_taste_dislike => "dislikes it",
-        NPC.gift_taste_hate => "hates it",
-        _ => "neutral",
+        NPC.gift_taste_love => "Loves your item",
+        NPC.gift_taste_like => "Likes your item",
+        NPC.gift_taste_dislike => "Dislikes your item",
+        NPC.gift_taste_hate => "Hates your item",
+        _ => "Neutral on your item",
     };
 
     static NPC NearestVillager(int tiles)
@@ -335,8 +445,8 @@ public class Panels
             if (npc.CanReceiveGifts())
             {
                 int t = npc.getGiftTasteForThisItem(held);
-                if (t == NPC.gift_taste_love) lovedBy.Add(npc.displayName);
-                else if (t == NPC.gift_taste_like) likedBy.Add(npc.displayName);
+                if (t == NPC.gift_taste_love) lovedBy.Add(npc);
+                else if (t == NPC.gift_taste_like) likedBy.Add(npc);
             }
             return true;
         });
@@ -373,43 +483,53 @@ public class Panels
 
     // ---------- Bag ----------
 
-    static Rectangle SlotRect(Rectangle a, int i) => new(a.X + i % Cols * Slot, a.Y + 28 + i / Cols * (Slot + (i / Cols == 0 ? 8 : 0)), Slot, Slot);
+    const int BagX = 22, BagY = 66;
 
-    void DrawBag(SpriteBatch b, Rectangle a)
+    static Rectangle SlotRect(int i) => new(BagX + i % Cols * Slot, BagY + i / Cols * Slot + (i >= Cols ? 8 : 0), Slot, Slot);
+
+    void DrawBag(SpriteBatch b)
     {
         var menu = OpenInventory;
-        string hint = menu == null ? "Tap to hold"
-            : Game1.activeClickableMenu is ShopMenu ? "Tap to sell" : "Tap to move";
-        Text(b, hint, new Vector2(a.X, a.Y), Faint);
-
+        Card(b, 8, 58, 604, 176);
         var items = Game1.player.Items;
-        for (int i = 0; i < Game1.player.MaxItems; i++)
+        for (int i = 0; i < 36; i++)
         {
-            var r = SlotRect(a, i);
-            b.Draw(Game1.menuTexture, r, new Rectangle(128, 128, 64, 64), Color.White);
-            if (i < items.Count && items[i] is Item item)
+            var r = SlotRect(i);
+            bool locked = i >= Game1.player.MaxItems;
+            b.Draw(Game1.menuTexture, r, new Rectangle(128, 128, 64, 64), locked ? Color.White * 0.35f : Color.White);
+            if (!locked && i < items.Count && items[i] is Item item)
             {
                 Item(b, item, r.X, r.Y);
-                if (item.Stack > 1) Utility.drawTinyDigits(item.Stack, b, new Vector2(r.Right - Utility.getWidthOfTinyDigitString(item.Stack, 2f) - 3, r.Bottom - 14), 2f, 1f, Color.White);
+                Count(b, item.Stack, r.Right, r.Bottom);
             }
             if (menu == null && i == Game1.player.CurrentToolIndex)
                 b.Draw(Game1.mouseCursors, r, new Rectangle(194, 388, 16, 16), Color.White);
         }
 
-        var cur = Game1.player.CurrentItem;
-        if (cur != null)
+        // Item card: what you're holding, or how taps work while a chest or shop is open.
+        Card(b, 8, 242, 604, 290);
+        if (menu != null)
         {
-            float y = SlotRect(a, Game1.player.MaxItems - 1).Bottom + 16;
-            Text(b, cur.DisplayName, new Vector2(a.X, y));
-            y += Line;
-            Wrapped(b, cur.getDescription().Replace('\n', ' '), a, ref y, Faint, 4);
+            Text(b, Game1.activeClickableMenu is ShopMenu ? "Tap an item to sell it." : "Tap an item to move it into the chest.", new Vector2(22, 256), Faint);
+            return;
         }
+        var cur = Game1.player.CurrentItem;
+        if (cur == null) { Text(b, "Tap an item to hold it.", new Vector2(22, 256), Faint); return; }
+        SlotFrame(b, 22, 256, 64);
+        Item(b, cur, 22, 256, 64);
+        Text(b, cur.DisplayName, new Vector2(98, 258));
+        if (cur is SObject o && o.sellToStorePrice() > 0)
+        {
+            Icon(b, Game1.mouseCursors, Coin, 98, 290, 2);
+            Text(b, o.sellToStorePrice().ToString(), new Vector2(120, 286));
+        }
+        float y = 336;
+        Wrapped(b, cur.getDescription().Replace('\n', ' '), 22, ref y, 576, Faint, 6);
     }
 
     void TapBag(int x, int y)
     {
-        var a = new Rectangle(Pad, TabH + Pad, ModEntry.W - Pad * 2, ModEntry.H - TabH - Pad * 2);
-        int i = Enumerable.Range(0, Game1.player.MaxItems).FirstOrDefault(n => SlotRect(a, n).Contains(x, y), -1);
+        int i = Enumerable.Range(0, Game1.player.MaxItems).FirstOrDefault(n => SlotRect(n).Contains(x, y), -1);
         if (i < 0) return;
 
         var menu = OpenInventory;
