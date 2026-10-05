@@ -745,7 +745,7 @@ public class Panels
         }
         if (Game1.activeClickableMenu is GeodeMenu geode)
         {
-            DrawMenuBag(b, "Clint - geodes", "Tap a geode to crack it open.", geode.geodeTreasure, "Last found",
+            DrawMenuBag(b, "Clint - geodes", "Tap a geode to crack it open.", geode.geodeTreasure ?? lastGeodeFind, "Last found",
                 $"25g each. You have {Utility.getNumberWithCommas(Game1.player.Money)}g");
             return;
         }
@@ -1422,7 +1422,11 @@ public class Panels
     {
         if (!Context.IsWorldReady && Game1.activeClickableMenu is TitleMenu tm)
             foreach (var button in tm.buttons.Take(4)) button.visible = false;
+        // The geode menu only holds the find while the crack animates; keep it for the panel.
+        if (Game1.activeClickableMenu is GeodeMenu { geodeTreasure: Item found }) lastGeodeFind = found;
     }
+
+    Item lastGeodeFind;
 
     void DrawTitle(SpriteBatch b, TitleMenu tm)
     {
