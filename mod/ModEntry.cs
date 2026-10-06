@@ -94,6 +94,14 @@ public class ModEntry : Mod
         view = null;
         Monitor.Log("Game is exiting; closing the bottom screen.", LogLevel.Trace);
         activity.RunOnUiThread(() => w.Dismiss());
+        // Title-screen Exit only closes the game's screen; Cinderbox keeps the process (and its music) running.
+        // Nothing is in progress on the title, so end the app once SMAPI has had a moment to flush its log.
+        if (Game1.quit)
+        {
+            Monitor.Log("Exit pressed; ending the app.", LogLevel.Trace);
+            // A plain background timer: Android's main thread stops running posted work once the game screen closes.
+            System.Threading.Tasks.Task.Delay(1500).ContinueWith(_ => Android.OS.Process.KillProcess(Android.OS.Process.MyPid()));
+        }
     }
 
     /// <summary>The game loop stops when the game exits, so also watch from Android's side: once the game's
@@ -104,7 +112,11 @@ public class ModEntry : Mod
         void Check()
         {
             if (window == null) return;
-            if (activity.IsFinishing || activity.IsDestroyed) { CloseWindow(); return; }
+            if (activity.IsFinishing || activity.IsDestroyed)
+            {
+                CloseWindow();
+                return;
+            }
             handler.PostDelayed(Check, 500);
         }
         handler.PostDelayed(Check, 500);
