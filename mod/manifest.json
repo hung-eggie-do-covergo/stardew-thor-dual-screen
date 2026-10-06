@@ -1,7 +1,7 @@
 {
   "Name": "Thor Dual Screen",
   "Author": "Hung",
-  "Version": "0.2.0",
+  "Version": "0.3.0",
   "Description": "Touch companion for the AYN Thor's bottom screen: day info, gifts, bag, crafting, tile aiming and touch versions of chests, shops, the shipping bin and the title screen.",
   "UniqueID": "Hung.ThorDualScreen",
   "EntryDll": "DualScreen.dll",
