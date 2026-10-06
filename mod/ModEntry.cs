@@ -75,6 +75,7 @@ public class ModEntry : Mod
                 };
                 window.SetContentView(view);
                 window.Show();
+                WatchForExit();
             }
             catch (Exception ex) { Monitor.Log($"Couldn't open the bottom screen: {ex}", LogLevel.Error); }
         });
@@ -84,9 +85,35 @@ public class ModEntry : Mod
         Microsoft.Xna.Framework.AndroidGameActivity.Resumed += (_, _) => window?.Show();
     }
 
+    /// <summary>The game is quitting (title screen Exit): close the bottom window too, or it outlives the game.</summary>
+    void CloseWindow()
+    {
+        if (window == null) return;
+        var w = window;
+        window = null;
+        view = null;
+        Monitor.Log("Game is exiting; closing the bottom screen.", LogLevel.Trace);
+        activity.RunOnUiThread(() => w.Dismiss());
+    }
+
+    /// <summary>The game loop stops when the game exits, so also watch from Android's side: once the game's
+    /// activity is finishing, close the bottom window.</summary>
+    void WatchForExit()
+    {
+        var handler = new Android.OS.Handler(Android.OS.Looper.MainLooper!);
+        void Check()
+        {
+            if (window == null) return;
+            if (activity.IsFinishing || activity.IsDestroyed) { CloseWindow(); return; }
+            handler.PostDelayed(Check, 500);
+        }
+        handler.PostDelayed(Check, 500);
+    }
+
     void OnUpdateTicked(object sender, UpdateTickedEventArgs e)
     {
         if (view == null) return;
+        if (Game1.quit) { CloseWindow(); return; }
         panels.Tick();
 
         while (touches.TryDequeue(out var t))
