@@ -1002,6 +1002,9 @@ public class Panels
             return;
         }
         if (Storage is InventoryMenu store) { DrawStorage(b, store); return; }
+        // Any other menu with your inventory (museum, forge, tailoring...): grey out what it won't take, and
+        // let taps go to its own click handling.
+        if (Game1.activeClickableMenu is MenuWithInventory other) { DrawMenuBag(b, MenuTitle(other), MenuHint(other), null, "", null); return; }
         var menu = OpenInventory;
         Card(b, 8, 58, 604, 204);
         var items = Game1.player.Items;
@@ -1039,13 +1042,8 @@ public class Panels
         Text(b, "Stack to chests", new Vector2(StackRect.X + 80, StackRect.Y + 12));
         Text(b, CurrentStatus ?? "Tops up stacks in chests", new Vector2(StackRect.X + 80, StackRect.Y + 38), Faint);
 
-        // Item card: what you're holding, or how taps work while a chest or shop is open.
+        // Item card: what you're holding.
         Card(b, 8, 354, 604, 174);
-        if (menu != null)
-        {
-            Text(b, "Tap an item to sell it.", new Vector2(22, 368), Faint);
-            return;
-        }
         var cur = Game1.player.CurrentItem;
         if (cur == null) { Text(b, "Tap an item to hold it. Drag to move or trash it.", new Vector2(22, 368), Faint); return; }
         SlotFrame(b, 22, 368, 64);
@@ -1126,6 +1124,7 @@ public class Panels
         if (Game1.activeClickableMenu is ItemGrabMenu { shippingBin: true }) { TapBin(x, y); return; }
         if (Game1.activeClickableMenu is GeodeMenu) { TapMenuBag(x, y); return; }
         if (Storage is InventoryMenu store) { TapStorage(store, x, y); return; }
+        if (Game1.activeClickableMenu is MenuWithInventory) { TapMenuBag(x, y); return; }
         if (StackRect.Contains(x, y) && OpenInventory == null) { QuickStack(); return; }
         int i = BagSlotAt(x, y);
         if (i < 0) return;
@@ -1608,6 +1607,22 @@ public class Panels
             if (i == sellPick && menu is ItemGrabMenu) b.Draw(Game1.mouseCursors, r, new Rectangle(194, 388, 16, 16), Color.White);
         }
     }
+
+    static string MenuTitle(MenuWithInventory m) => m switch
+    {
+        MuseumMenu => "Museum - Gunther",
+        ForgeMenu => "Forge",
+        TailoringMenu => "Sewing machine",
+        FieldOfficeMenu => "Field office",
+        _ => "Bag",
+    };
+
+    static string MenuHint(MenuWithInventory m) => m switch
+    {
+        MuseumMenu => "Tap an item to donate it, then choose its spot on the top screen. Greyed-out items can't be donated.",
+        ForgeMenu or TailoringMenu => "Tap an item to put it in, then finish on the top screen.",
+        _ => "Tap an item to use it with the menu on the top screen.",
+    };
 
     void TapBin(int x, int y)
     {
