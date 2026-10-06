@@ -1612,18 +1612,45 @@ public class Panels
     static Rectangle SaveSlot(int i) => new(8, 16 + i * 104, 604, 96);
     static readonly Rectangle TitleBack = new(8, 452, 200, 76), SaveUp = new(520, 452, 44, 76), SaveDown = new(568, 452, 44, 76);
 
-    /// <summary>The title screen's sky, clouds, hills and trees, drawn at half the game's scale.</summary>
-    static void DrawTitleBackground(SpriteBatch b, TitleMenu tm)
+    /// <summary>The title screen's background at half the game's scale: same layers, same camera pan
+    /// (viewportY) and the same night fade (globalXOffset) the game uses when Load opens.</summary>
+    void DrawTitleBackground(SpriteBatch b, TitleMenu tm)
     {
         int w = ModEntry.W, h = ModEntry.H;
         const float z = 2f;
+        float vy = tm.viewportY / 2f, night = tm.globalXOffset / 1200f;
+        var clouds = tm.cloudsTexture;
+        var big = helper.Reflection.GetField<List<float>>(tm, "bigClouds").GetValue();
+        var small = helper.Reflection.GetField<List<float>>(tm, "smallClouds").GetValue();
+
         b.Draw(Game1.staminaRect, new Rectangle(0, 0, w, h), new Color(64, 136, 248));
-        b.Draw(Game1.mouseCursors, new Rectangle(0, -300 * 2, w, 300 * 2 + h - 120 * 2), new Rectangle(703, 1912, 1, 264), Color.White);
-        b.Draw(tm.cloudsTexture, new Vector2(-100, h - 250 * z), new Rectangle(0, 0, 512, 337), Color.White * 0.6f, 0, Vector2.Zero, z, SpriteEffects.None, 0);
-        b.Draw(Game1.mouseCursors, new Vector2(-30 * z, h - 158 * z), new Rectangle(0, 886, 639, 148), Color.White, 0, Vector2.Zero, z, SpriteEffects.None, 0);
-        b.Draw(Game1.mouseCursors, new Vector2(0, h - 148 * z), new Rectangle(0, 737, 639, 148), Color.White, 0, Vector2.Zero, z, SpriteEffects.None, 0);
-        b.Draw(tm.cloudsTexture, new Vector2(0, h - 142 * z), new Rectangle(0, 554, 165, 142), Color.White, 0, Vector2.Zero, z, SpriteEffects.None, 0);
-        b.Draw(tm.cloudsTexture, new Vector2(w - 122 * z, h - 153 * z), new Rectangle(390, 543, 122, 153), Color.White, 0, Vector2.Zero, z, SpriteEffects.None, 0);
+        b.Draw(Game1.mouseCursors, new Rectangle(0, (int)(-300 * z - vy * 0.66f), w, (int)(300 * z + h - 120 * z)), new Rectangle(703, 1912, 1, 264), Color.White);
+        for (int i = -10; i < w; i += 638)
+            b.Draw(Game1.mouseCursors, new Vector2(i, -360 * z - vy * 0.66f), new Rectangle(0, 1453, 638, 195), Color.White * (1f - night), 0, Vector2.Zero, z, SpriteEffects.None, 0);
+        foreach (float x in big)
+            b.Draw(clouds, new Vector2(x / 2f, h - 250 * z - vy * 0.5f), new Rectangle(0, 0, 512, 337), Color.White * tm.globalCloudAlpha, 0, Vector2.Zero, z, SpriteEffects.None, 0);
+        b.Draw(Game1.mouseCursors, new Vector2(-30 * z, h - 158 * z - vy * 0.66f), new Rectangle(0, 886, 639, 148), Color.White, 0, Vector2.Zero, z, SpriteEffects.None, 0);
+        b.Draw(Game1.mouseCursors, new Vector2(-30 * z + 639 * z, h - 158 * z - vy * 0.66f), new Rectangle(0, 886, 640, 148), Color.White, 0, Vector2.Zero, z, SpriteEffects.None, 0);
+        for (int j = 0; j < small.Count; j++)
+        {
+            var src = j % 3 == 0 ? new Rectangle(152, 447, 123, 55) : j % 3 == 1 ? new Rectangle(0, 471, 149, 66) : new Rectangle(410, 467, 63, 37);
+            b.Draw(clouds, new Vector2(small[j] / 2f, h - 300 * z - j * 12 * z - vy * 0.5f), src, Color.White * tm.globalCloudAlpha, 0, Vector2.Zero, z, SpriteEffects.None, 0);
+        }
+        b.Draw(Game1.mouseCursors, new Vector2(0, h - 148 * z - vy), new Rectangle(0, 737, 639, 148), Color.White, 0, Vector2.Zero, z, SpriteEffects.None, 0);
+        b.Draw(Game1.mouseCursors, new Vector2(639 * z, h - 148 * z - vy), new Rectangle(0, 737, 640, 148), Color.White, 0, Vector2.Zero, z, SpriteEffects.None, 0);
+        b.Draw(clouds, new Vector2(0, h - 142 * z - vy * 2f), new Rectangle(0, 554, 165, 142), Color.White, 0, Vector2.Zero, z, SpriteEffects.None, 0);
+        b.Draw(clouds, new Vector2(w - 122 * z, h - 153 * z - vy * 2f), new Rectangle(390, 543, 122, 153), Color.White, 0, Vector2.Zero, z, SpriteEffects.None, 0);
+
+        // Night: fades in over everything as Load opens, out again on Back.
+        if (night <= 0f) return;
+        b.Draw(Game1.mouseCursors, new Rectangle(0, 0, w, h), new Rectangle(702, 1912, 1, 264), Color.White * night);
+        var flip = SpriteEffects.None;
+        for (int k = 0; k < h; k += 195 * 2)
+        {
+            for (int l = 0; l < w; l += 638 * 2)
+                b.Draw(Game1.mouseCursors, new Vector2(l, k), new Rectangle(0, 1453, 638, 195), Color.White * night, 0, Vector2.Zero, z, flip, 0);
+            flip = flip == SpriteEffects.None ? SpriteEffects.FlipHorizontally : SpriteEffects.None;
+        }
     }
 
     /// <summary>Runs every tick: the buttons live on the bottom screen, so the top shows just the title.</summary>
@@ -1782,8 +1809,8 @@ public class Panels
         }
     }
 
-    bool TitleAnimating => !Context.IsWorldReady && Game1.activeClickableMenu is TitleMenu tm && TitleMenu.subMenu == null
-        && (!TitleReady(tm) || titleShown < 4 || Game1.ticks - titleShownAt[3] < 12);
+    // The title is always moving (clouds drift, the camera pans, night fades), so redraw it smoothly.
+    static bool TitleAnimating => !Context.IsWorldReady && Game1.activeClickableMenu is TitleMenu;
 
     // Bottom-screen title buttons revealed so far, and the tick each appeared (for the pop-in).
     int titleShown;
