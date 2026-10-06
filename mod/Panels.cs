@@ -156,6 +156,7 @@ public class Panels
     {
         if (!Context.IsWorldReady && Game1.activeClickableMenu is TitleMenu tm) { TapTitle(tm, x, y); return; }
         if (Idle) return;
+        if (numpadMax > 0) { TapNumpad(x, y - ContentShift); return; }
         if (y < TabH)
         {
             int i = (x + tabScroll - TabGap) / (TabW + TabGap);
@@ -201,6 +202,7 @@ public class Panels
                 if (dragging && Game1.player.Items[dragFrom] is Item held)
                     Item(b, held, dragAt.X - 32, dragAt.Y - ContentShift - 32, 64);
             }
+            if (numpadMax > 0) DrawNumpad(b);
             b.End();
             b.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp);
         }
@@ -756,6 +758,57 @@ public class Panels
             if (PersonRect(i).Contains(x, y)) { personPick = people[i]; return; }
     }
 
+    // ---------- Number pad ----------
+
+    // Android's keyboard can't open on the bottom window (it never takes focus), so amounts get our own pad.
+    int numpadMax;
+    string numpadText = "";
+    static readonly Rectangle NumpadCard = new(156, 76, 308, 444);
+    static readonly string[] NumpadKeys = { "1", "2", "3", "4", "5", "6", "7", "8", "9", "Del", "0", "OK" };
+    static Rectangle NumpadKey(int i) => new(172 + i % 3 * 96, 172 + i / 3 * 84, 88, 76);
+
+    void OpenNumpad(int max)
+    {
+        numpadMax = Math.Max(1, max);
+        numpadText = "";
+    }
+
+    void DrawNumpad(SpriteBatch b)
+    {
+        b.Draw(Game1.staminaRect, new Rectangle(0, 52, ModEntry.W, ModEntry.H), Color.Black * 0.45f);
+        Card(b, NumpadCard.X, NumpadCard.Y, NumpadCard.Width, NumpadCard.Height);
+        string shown = numpadText.Length > 0 ? numpadText : sellAmount.ToString();
+        b.Draw(Game1.menuTexture, new Rectangle(172, 92, 280, 64), new Rectangle(128, 128, 64, 64), Color.White);
+        Text(b, shown, new Vector2(188, 108), numpadText.Length > 0 ? Ink : Faint);
+        RightText(b, $"max {numpadMax}", 440, 110, Faint);
+        for (int i = 0; i < NumpadKeys.Length; i++)
+        {
+            var r = NumpadKey(i);
+            Card(b, r.X, r.Y, r.Width, r.Height);
+            var size = Game1.smallFont.MeasureString(NumpadKeys[i]);
+            Text(b, NumpadKeys[i], new Vector2(r.X + (r.Width - size.X) / 2, r.Y + (r.Height - size.Y) / 2 + 2), i == 11 ? Color.DarkGreen : Ink);
+        }
+    }
+
+    void TapNumpad(int x, int y)
+    {
+        if (!NumpadCard.Contains(x, y)) { numpadMax = 0; return; }  // tap outside cancels
+        for (int i = 0; i < NumpadKeys.Length; i++)
+        {
+            if (!NumpadKey(i).Contains(x, y)) continue;
+            string key = NumpadKeys[i];
+            if (key == "Del") numpadText = numpadText.Length > 0 ? numpadText[..^1] : "";
+            else if (key == "OK")
+            {
+                if (int.TryParse(numpadText, out var n)) sellAmount = Math.Clamp(n, 1, numpadMax);
+                numpadMax = 0;
+            }
+            else if (numpadText.Length < 4) numpadText = (numpadText + key).TrimStart('0');
+            Game1.playSound("smallSelect");
+            return;
+        }
+    }
+
     // ---------- Bag ----------
 
     // Slots fill the card's inner width (inside its 8px border) and are taller than wide: bigger targets,
@@ -851,6 +904,7 @@ public class Panels
             }
             var amt = sellAmount.ToString();
             Text(b, amt, new Vector2(144 - Game1.smallFont.MeasureString(amt).X / 2, 488));
+            b.Draw(Game1.staminaRect, new Rectangle(124, 514, 40, 2), Faint);
             Card(b, SplitGo.X, SplitGo.Y, SplitGo.Width, SplitGo.Height);
             Text(b, $"{(storeFromChest ? "Take" : "Store")} {sellAmount}", new Vector2(SplitGo.X + 20, SplitGo.Y + 15));
             return;
@@ -879,7 +933,8 @@ public class Panels
         var menu = Game1.activeClickableMenu;
         if (StorePicked(store) is Item picked && y >= 466)
         {
-            if (SplitMinus.Contains(x, y)) sellAmount = Math.Max(1, sellAmount - 1);
+            if (new Rectangle(118, 474, 52, 52).Contains(x, y)) OpenNumpad(picked.Stack);
+            else if (SplitMinus.Contains(x, y)) sellAmount = Math.Max(1, sellAmount - 1);
             else if (SplitPlus.Contains(x, y)) sellAmount = Math.Min(picked.Stack, sellAmount + 1);
             else if (SplitMax.Contains(x, y)) sellAmount = picked.Stack;
             else if (SplitGo.Contains(x, y)) MoveAmount(menu as ItemGrabMenu, store, picked);
@@ -1411,6 +1466,8 @@ public class Panels
         }
         var amt = sellAmount.ToString();
         Text(b, amt, new Vector2(394 - Game1.smallFont.MeasureString(amt).X / 2, top + 22));
+        // Underlined: tap it to type an amount.
+        b.Draw(Game1.staminaRect, new Rectangle(370, top + 48, 48, 2), Faint);
 
         var btn = PickButton(top);
         IClickableMenu.drawTextureBox(b, Game1.mouseCursors, BoxSrc, btn.X, btn.Y, btn.Width, btn.Height, Color.White, 2f, false);
@@ -1421,7 +1478,8 @@ public class Panels
     /// <summary>Handles − / + / Max taps; returns true if the action button was tapped.</summary>
     bool TapAmountPicker(Item item, int top, int x, int y)
     {
-        if (PickMinus(top).Contains(x, y)) sellAmount = Math.Max(1, sellAmount - 1);
+        if (new Rectangle(356, top + 8, 76, 52).Contains(x, y)) OpenNumpad(item.Stack);
+        else if (PickMinus(top).Contains(x, y)) sellAmount = Math.Max(1, sellAmount - 1);
         else if (PickPlus(top).Contains(x, y)) sellAmount = Math.Min(item.Stack, sellAmount + 1);
         else if (PickMax(top).Contains(x, y)) sellAmount = item.Stack;
         else return PickButton(top).Contains(x, y);
