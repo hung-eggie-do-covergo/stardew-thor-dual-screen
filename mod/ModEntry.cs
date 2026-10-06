@@ -36,7 +36,7 @@ public class ModEntry : Mod
     readonly Java.Nio.ByteBuffer[] pixels = new Java.Nio.ByteBuffer[2];
     readonly ConcurrentQueue<(MotionEventActions action, int x, int y)> touches = new();
     int flip, frames;
-    int pendingRedraws;
+    int pendingRedraws, lastKey;
     long drawTicks, readTicks;
     readonly Stopwatch timer = new();
 
@@ -45,6 +45,11 @@ public class ModEntry : Mod
         panels = new Panels(helper, Monitor);
         helper.Events.GameLoop.GameLaunched += (_, _) => OpenWindow();
         helper.Events.GameLoop.UpdateTicked += OnUpdateTicked;
+        helper.Events.GameLoop.DayStarted += (_, _) => panels.MarkCropsDirty();
+        helper.Events.World.TerrainFeatureListChanged += (_, _) => panels.MarkCropsDirty();
+        helper.Events.World.ObjectListChanged += (_, _) => panels.MarkCropsDirty();
+        // Picking a crop by hand isn't a tool swing, but it lands in the bag.
+        helper.Events.Player.InventoryChanged += (_, _) => panels.MarkCropsDirty();
     }
 
     void OpenWindow()
@@ -153,9 +158,22 @@ public class ModEntry : Mod
             pendingRedraws = 2;
         }
 
-        if (pendingRedraws == 0 && !e.IsMultipleOf((uint)panels.RedrawInterval)) return;
-        if (pendingRedraws > 0) pendingRedraws--;
-        Render();
+        if (pendingRedraws > 0) { pendingRedraws--; Render(); return; }
+        // Redraw as soon as what the screen shows changes (two renders, as readback lags a frame): checked
+        // every other tick so switching items with the triggers tracks smoothly, even on animated screens.
+        if (e.IsMultipleOf(2))
+        {
+            int key = panels.StateKey();
+            if (key != lastKey)
+            {
+                lastKey = key;
+                pendingRedraws = 1;
+                Render();
+                return;
+            }
+        }
+        int interval = panels.AnimationInterval;
+        if (interval > 0 ? e.IsMultipleOf((uint)interval) : e.IsMultipleOf(600)) Render();
     }
 
     void Render()
@@ -207,27 +225,34 @@ public class ModEntry : Mod
         }
     }
 
-    // Stutter diagnostics: game frames over 50 ms, and whether the bottom screen or a GC was in them.
-    readonly Stopwatch frameClock = Stopwatch.StartNew();
-    long maxUpdate, maxDraw, maxRead, allocBytes;
+    // Stutter diagnostics: every game frame over 50 ms (with what was in it), and the game's allocation rate.
+    readonly Stopwatch frameClock = Stopwatch.StartNew(), rateClock = Stopwatch.StartNew();
+    long maxUpdate, maxDraw, maxRead, allocBytes, rateBytes;
     bool renderedThisTick;
-    int slowFrames, slowWithRender, slowWithGc, lastGcCount;
+    int slowFrames, lastG0, lastG1, lastG2, rateG0, rateG1, rateG2;
 
     void TrackFrame()
     {
         double ms = frameClock.Elapsed.TotalMilliseconds;
         frameClock.Restart();
-        int gc = GC.CollectionCount(0);
+        int g0 = GC.CollectionCount(0), g1 = GC.CollectionCount(1), g2 = GC.CollectionCount(2);
         if (ms > 50)
         {
             slowFrames++;
-            if (renderedThisTick) slowWithRender++;
-            if (gc != lastGcCount) slowWithGc++;
-            if (slowFrames % 10 == 0)
-                Monitor.Log($"Slow frames: {slowFrames} (last {ms:0} ms); with a bottom-screen update {slowWithRender}, with a GC {slowWithGc}; GCs so far {gc}/{GC.CollectionCount(1)}/{GC.CollectionCount(2)}", LogLevel.Trace);
+            string gc = g2 != lastG2 ? "full" : g1 != lastG1 ? "gen1" : g0 != lastG0 ? "gen0" : "none";
+            Monitor.Log($"Slow frame {ms:0} ms on {panels.ShowingName}: bottom-screen update {(renderedThisTick ? "yes" : "no")}, GC {gc}", LogLevel.Trace);
         }
-        lastGcCount = gc;
+        lastG0 = g0; lastG1 = g1; lastG2 = g2;
         renderedThisTick = false;
+
+        if (rateClock.Elapsed.TotalSeconds >= 10)
+        {
+            long total = GC.GetTotalAllocatedBytes();
+            Monitor.Log($"Game allocates {(total - rateBytes) / rateClock.Elapsed.TotalSeconds / 1048576:0.00} MB/s; GCs in 10 s: " +
+                $"gen0 {g0 - rateG0}, gen1 {g1 - rateG1}, full {g2 - rateG2}; slow frames {slowFrames}", LogLevel.Trace);
+            rateBytes = total; rateG0 = g0; rateG1 = g1; rateG2 = g2; slowFrames = 0;
+            rateClock.Restart();
+        }
     }
 
     BitmapDrawable NewDrawable(Bitmap bmp)

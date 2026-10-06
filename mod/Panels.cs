@@ -70,7 +70,78 @@ public class Panels
     List<NPC> lovedBy = new(), likedBy = new();
     List<string> bundles = new();
 
-    public int RedrawInterval => TitleAnimating ? 2 : Game1.gameMode == Game1.loadingMode || Showing == Tab.Saving ? 6 : Showing switch { Tab.Aim => 2, Tab.Bag => dragging ? 2 : 15, Tab.Craft or Tab.Shop or Tab.People => listTouch ? 2 : 30, _ => 30 };
+    /// <summary>Ticks between redraws for screens that move on their own; 0 = static, redraw only on change.</summary>
+    public int AnimationInterval =>
+        TitleAnimating ? 2
+        : Game1.gameMode == Game1.loadingMode || Showing == Tab.Saving ? 6
+        : dragging || listTouch || scrollingTabs ? 2
+        // Aim shows the living world: smooth while you move or swing, a slow trickle for idle animation.
+        : Showing == Tab.Aim ? (Game1.player.isMoving() || Game1.player.UsingTool ? 2 : 12)
+        : 0;
+
+    /// <summary>A cheap fingerprint of what the showing screen depends on; the bottom screen redraws when it
+    /// changes. No allocations: it runs every few ticks.</summary>
+    NPC giftsKeyNpc;
+
+    public int StateKey()
+    {
+        var h = new HashCode();
+        h.Add(Showing); h.Add(tabScroll); h.Add(gridScroll); h.Add(sellAmount); h.Add(sellPick); h.Add(storeIndex);
+        h.Add(storePage); h.Add(numpadMax); h.Add(numpadText); h.Add(statusUntil > Game1.ticks); h.Add(Game1.player?.Money ?? 0);
+        if (!Context.IsWorldReady) return h.ToHashCode();
+        var items = Game1.player.Items;
+        for (int i = 0; i < items.Count; i++)
+            if (items[i] is Item it) { h.Add(i); h.Add(it.QualifiedItemId); h.Add(it.Stack); h.Add(it.Quality); }
+        h.Add(Game1.player.CurrentToolIndex);
+        switch (Showing)
+        {
+            case Tab.Today:
+                h.Add(Game1.dayOfMonth); h.Add(Game1.weatherIcon); h.Add(Game1.player.DailyLuck);
+                if (cropsDirty) { crops = Crops(); cropsDirty = false; }
+                h.Add(crops.ready); h.Add(crops.dry);
+                break;
+            case Tab.Gifts when Game1.ticks % 30 == 0 || giftsKeyNpc != null:
+                if ((giftsKeyNpc = Game1.ticks % 30 == 0 ? NearestVillager(8) : giftsKeyNpc) is NPC n)
+                {
+                    h.Add(n.Name);
+                    if (Game1.player.friendshipData.TryGetValue(n.Name, out var f)) { h.Add(f.Points); h.Add(f.GiftsThisWeek); h.Add(f.GiftsToday); }
+                }
+                break;
+            case Tab.People:
+                Utility.ForEachVillager(v => { if (Met(v)) h.Add(v.currentLocation?.NameOrUniqueName); return true; });
+                h.Add(personPick?.Name); h.Add(personGifts);
+                if (personPick != null) h.Add(personPick.TilePoint);
+                break;
+            case Tab.Craft:
+                h.Add(picked?.name); h.Add(Game1.player.craftingRecipes.Length);
+                break;
+            case Tab.Shop when Game1.activeClickableMenu is ShopMenu shop:
+                h.Add(shop.forSale.Count); h.Add(shopPick?.DisplayName); h.Add(shopBagRow);
+                break;
+            case Tab.Bag when Storage is InventoryMenu store:
+                for (int i = 0; i < store.actualInventory.Count; i++)
+                    if (store.actualInventory[i] is Item it) { h.Add(i); h.Add(it.QualifiedItemId); h.Add(it.Stack); }
+                break;
+            case Tab.Bag:
+                h.Add(Game1.getFarm()?.lastItemShipped?.QualifiedItemId); h.Add(lastGeodeFind?.QualifiedItemId);
+                if (Game1.activeClickableMenu is GeodeMenu g) h.Add(g.geodeAnimationTimer > 0);
+                break;
+            case Tab.Bundle when Game1.activeClickableMenu is JunimoNoteMenu note:
+                h.Add(note.specificBundlePage); h.Add(note.currentPageBundle?.bundleIndex);
+                foreach (var slot in note.ingredientSlots) h.Add(slot.item != null);
+                break;
+            case Tab.Shipped when Game1.activeClickableMenu is ShippingMenu sm:
+                h.Add(helper.Reflection.GetField<int>(sm, "introTimer").GetValue() <= 0);
+                break;
+            case Tab.LevelUp when Game1.activeClickableMenu is LevelUpMenu lu:
+                h.Add(lu.isProfessionChooser); h.Add(lu.informationUp);
+                break;
+            case Tab.Choices when Game1.activeClickableMenu is DialogueBox d:
+                h.Add(d.responses.Length); h.Add(d.characterIndexInDialogue);
+                break;
+        }
+        return h.ToHashCode();
+    }
 
     /// <summary>Menu whose inventory the Bag panel drives, e.g. a chest or a shop.</summary>
     static InventoryMenu OpenInventory => Game1.activeClickableMenu switch
@@ -383,7 +454,8 @@ public class Panels
         Text(b, Weather(Game1.weatherForTomorrow), new Vector2(270, 94));
 
         Card(b, 416, 58, 196, 76);
-        var (ready, readyItem, dry) = Crops();
+        if (cropsDirty) { crops = Crops(); cropsDirty = false; }
+        var (ready, readyItem, dry) = crops;
         Item(b, readyItem ?? (parsnip ??= ItemRegistry.Create("(O)24")), 428, 68, 32, readyItem == null ? 0.35f : 1f);
         Text(b, ready > 0 ? $"{ready} ready" : "None ready", new Vector2(466, 68), ready > 0 ? Color.DarkGreen : Faint);
         Item(b, waterCan ??= ItemRegistry.Create("(T)WateringCan"), 428, 98, 32);
@@ -455,6 +527,13 @@ public class Panels
         "GreenRain" => 999,
         _ => 2,
     };
+
+    // Crop counts only change when the day starts, a tool swing lands (water, hoe, scythe) or farm tiles and
+    // objects change (planting, picking, pots), so they're recounted then instead of on every redraw.
+    (int ready, Item readyItem, int dry) crops;
+    bool cropsDirty = true, wasUsingTool;
+
+    public void MarkCropsDirty() => cropsDirty = true;
 
     static (int ready, Item readyItem, int dry) Crops()
     {
@@ -2004,6 +2083,12 @@ public class Panels
 
     public void Tick()
     {
+        if (Context.IsWorldReady)
+        {
+            bool using_ = Game1.player.UsingTool;
+            if (wasUsingTool && !using_) cropsDirty = true;
+            wasUsingTool = using_;
+        }
         if (pressDown && Game1.ticks - pressTick >= LongPressTicks)
         {
             pressDown = false;
