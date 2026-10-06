@@ -125,10 +125,14 @@ public class Panels
                 break;
             case Android.Views.MotionEventActions.Down:
                 headerTouch = scrollingTabs = listTouch = scrollingList = false;
+                pressAt = new Point(x, y); pressTick = Game1.ticks; pressDown = true; longPressed = false;
                 dragFrom = Showing == Tab.Bag && OpenInventory == null ? BagSlotAt(x, y - ContentShift) : -1;
                 if (dragFrom >= 0 && Game1.player.Items[dragFrom] == null) dragFrom = -1;
                 dragAt = new Point(x, y);
                 dragging = false;
+                break;
+            case Android.Views.MotionEventActions.Move when pressDown && dragFrom < 0:
+                if (Math.Abs(x - pressAt.X) + Math.Abs(y - pressAt.Y) > 12) pressDown = false;
                 break;
             case Android.Views.MotionEventActions.Move when dragFrom >= 0:
                 // A few pixels of wobble still counts as a tap.
@@ -137,7 +141,8 @@ public class Panels
                 break;
             case Android.Views.MotionEventActions.Up:
                 if (dragging) DropItem(dragFrom, x, y - ContentShift);
-                else if (!scrollingTabs && !scrollingList) Tap(x, y);
+                else if (!scrollingTabs && !scrollingList && !longPressed) Tap(x, y);
+                pressDown = longPressed = false;
                 headerTouch = scrollingTabs = listTouch = scrollingList = false;
                 dragFrom = -1; dragging = false;
                 break;
@@ -776,6 +781,11 @@ public class Panels
 
     const int StoreSlotH = 52, StorePage = 36;
     int storePage;
+    // Long-press amount picker in the chest view: which side, which slot (-1 = none).
+    int storeIndex = -1;
+    bool storeFromChest;
+    static readonly Rectangle SplitMinus = new(68, 474, 48, 52), SplitPlus = new(172, 474, 48, 52),
+        SplitMax = new(226, 474, 80, 52), SplitGo = new(314, 472, 298, 56);
 
     /// <summary>The open chest (or other storage) grid, when the top menu is an ItemGrabMenu.</summary>
     static InventoryMenu Storage => (Game1.activeClickableMenu as ItemGrabMenu)?.ItemsToGrabMenu;
@@ -792,7 +802,7 @@ public class Panels
         storePage = Math.Min(storePage, pages - 1);
 
         Card(b, 8, 58, 604, 202);
-        Text(b, "Chest - tap to take", new Vector2(22, 64), Faint);
+        Text(b, "Chest - tap to take, hold for an amount", new Vector2(22, 64), Faint);
         if (pages > 1)
         {
             Text(b, $"{storePage + 1}/{pages}", new Vector2(440, 64), Faint);
@@ -813,7 +823,7 @@ public class Panels
         }
 
         Card(b, 8, 264, 604, 204);
-        Text(b, "Bag - tap to store", new Vector2(22, 270), Faint);
+        Text(b, "Bag - tap to store, hold for an amount", new Vector2(22, 270), Faint);
         var items = Game1.player.Items;
         for (int i = 0; i < 36; i++)
         {
@@ -827,6 +837,25 @@ public class Panels
             }
         }
 
+        if (StorePicked(store) is Item picked)
+        {
+            // Long-pressed slot: the button row becomes an amount picker.
+            var pr = storeFromChest ? StoreRect(storeIndex - storePage * StorePage) : StoreBagRect(storeIndex);
+            b.Draw(Game1.mouseCursors, pr, new Rectangle(194, 388, 16, 16), Color.White);
+            Card(b, 8, 472, 298, 56);
+            Item(b, picked, 16, 478, 44);
+            foreach (var (r, label) in new[] { (SplitMinus, "-"), (SplitPlus, "+"), (SplitMax, "Max") })
+            {
+                var size = Game1.smallFont.MeasureString(label);
+                Text(b, label, new Vector2(r.X + (r.Width - size.X) / 2, r.Y + (r.Height - size.Y) / 2 + 2));
+            }
+            var amt = sellAmount.ToString();
+            Text(b, amt, new Vector2(144 - Game1.smallFont.MeasureString(amt).X / 2, 488));
+            Card(b, SplitGo.X, SplitGo.Y, SplitGo.Width, SplitGo.Height);
+            Text(b, $"{(storeFromChest ? "Take" : "Store")} {sellAmount}", new Vector2(SplitGo.X + 20, SplitGo.Y + 15));
+            return;
+        }
+
         // The chest menu's own side buttons, made big.
         Card(b, FillRect.X, FillRect.Y, FillRect.Width, FillRect.Height);
         Icon(b, Game1.mouseCursors, new Rectangle(103, 469, 16, 16), FillRect.X + 12, FillRect.Y + 12, 2);
@@ -836,9 +865,27 @@ public class Panels
         Text(b, "Organize chest", new Vector2(OrganizeRect.X + 54, OrganizeRect.Y + 15));
     }
 
+    Item StorePicked(InventoryMenu store)
+    {
+        if (storeIndex < 0) return null;
+        var list = storeFromChest ? store.actualInventory : Game1.player.Items;
+        var item = storeIndex < list.Count ? list[storeIndex] : null;
+        if (item == null) storeIndex = -1;
+        return item;
+    }
+
     void TapStorage(InventoryMenu store, int x, int y)
     {
         var menu = Game1.activeClickableMenu;
+        if (StorePicked(store) is Item picked && y >= 466)
+        {
+            if (SplitMinus.Contains(x, y)) sellAmount = Math.Max(1, sellAmount - 1);
+            else if (SplitPlus.Contains(x, y)) sellAmount = Math.Min(picked.Stack, sellAmount + 1);
+            else if (SplitMax.Contains(x, y)) sellAmount = picked.Stack;
+            else if (SplitGo.Contains(x, y)) MoveAmount(menu as ItemGrabMenu, store, picked);
+            return;
+        }
+        storeIndex = -1;
         if (StorePrev.Contains(x, y)) { storePage = Math.Max(0, storePage - 1); return; }
         if (StoreNext.Contains(x, y)) { storePage++; return; }
         if (menu is ItemGrabMenu grab)
@@ -851,6 +898,29 @@ public class Panels
         if (s >= 0) { ClickSlot(menu, store, storePage * StorePage + s); return; }
         int b = Enumerable.Range(0, Game1.player.MaxItems).FirstOrDefault(n => StoreBagRect(n).Contains(x, y), -1);
         if (b >= 0) ClickSlot(menu, OpenInventory, b);
+    }
+
+    /// <summary>Moves part of a stack between chest and bag; anything that doesn't fit stays put.</summary>
+    void MoveAmount(ItemGrabMenu grab, InventoryMenu store, Item picked)
+    {
+        int count = Math.Clamp(sellAmount, 1, picked.Stack);
+        var part = picked.getOne();
+        part.Stack = count;
+        Item left;
+        if (storeFromChest) left = Game1.player.addItemToInventory(part);
+        else if ((grab?.sourceItem ?? grab?.context) is StardewValley.Objects.Chest chest) left = chest.addItem(part);
+        else { Status("Can't split into this storage"); return; }
+        int moved = count - (left?.Stack ?? 0);
+        if (moved == 0) { Status(storeFromChest ? "Bag is full" : "Chest is full"); return; }
+        picked.Stack -= moved;
+        if (picked.Stack <= 0)
+        {
+            var list = storeFromChest ? store.actualInventory : Game1.player.Items;
+            list[storeIndex] = null;
+            storeIndex = -1;
+        }
+        else sellAmount = Math.Min(sellAmount, picked.Stack);
+        Game1.playSound("Ship");
     }
 
     static void ClickSlot(IClickableMenu menu, InventoryMenu grid, int index)
@@ -1557,8 +1627,19 @@ public class Panels
     }
 
     /// <summary>Runs every tick: the buttons live on the bottom screen, so the top shows just the title.</summary>
+    // Long press: finger down and still for half a second.
+    Point pressAt;
+    int pressTick;
+    bool pressDown, longPressed;
+    const int LongPressTicks = 30;
+
     public void Tick()
     {
+        if (pressDown && Game1.ticks - pressTick >= LongPressTicks)
+        {
+            pressDown = false;
+            longPressed = LongPress(pressAt.X, pressAt.Y - ContentShift);
+        }
         if (!Context.IsWorldReady && Game1.activeClickableMenu is TitleMenu tm)
             foreach (var button in tm.buttons.Take(4)) button.visible = false;
         // The geode menu only holds the find while the crack animates; keep it for the panel.
@@ -1566,6 +1647,26 @@ public class Panels
     }
 
     Item lastGeodeFind;
+
+    /// <summary>Returns true if the long press did something, so the finger lifting isn't also a tap.</summary>
+    bool LongPress(int x, int y)
+    {
+        if (Showing != Tab.Bag || Storage is not InventoryMenu store) return false;
+        int s = Enumerable.Range(0, StorePage).FirstOrDefault(n => StoreRect(n).Contains(x, y), -1);
+        int i = storePage * StorePage + s;
+        if (s >= 0 && i < store.actualInventory.Count && store.actualInventory[i] is Item fromChest)
+        {
+            storeFromChest = true; storeIndex = i; sellAmount = Math.Max(1, fromChest.Stack / 2);
+            return true;
+        }
+        int b = Enumerable.Range(0, Game1.player.MaxItems).FirstOrDefault(n => StoreBagRect(n).Contains(x, y), -1);
+        if (b >= 0 && Game1.player.Items[b] is Item fromBag)
+        {
+            storeFromChest = false; storeIndex = b; sellAmount = Math.Max(1, fromBag.Stack / 2);
+            return true;
+        }
+        return false;
+    }
 
     void DrawTitle(SpriteBatch b, TitleMenu tm)
     {
