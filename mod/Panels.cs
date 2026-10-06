@@ -22,8 +22,10 @@ public class Panels
     static readonly Tab[] Movable = { Tab.Today, Tab.Gifts, Tab.People, Tab.Bag, Tab.Craft, Tab.Aim };
     // Tabs keep a fixed size (about 24x10 mm on the Thor) and the strip scrolls sideways when they don't fit.
     const int TabH = 64, TabW = 140, TabGap = 4, Slot = 48, Cols = 12;
-    // Content cards are laid out from y=58; shift them down to sit under the header.
-    const int ContentShift = TabH + 6 - 58;
+    // Content cards are laid out from y=58: shifted down under the header, or up to the top when a menu
+    // takeover hides the header (the tabs can't be used then anyway).
+    static int ContentShift => HeaderShown ? TabH + 6 - 58 : 6 - 58;
+    static bool HeaderShown => MenuLayout == null;
 
     // Cursors.png sprites.
     static readonly Rectangle BoxSrc = new(384, 373, 18, 18), Dice = new(381, 361, 10, 10), Coin = new(193, 373, 9, 10),
@@ -111,7 +113,7 @@ public class Panels
     {
         switch (action)
         {
-            case Android.Views.MotionEventActions.Down when y < TabH:
+            case Android.Views.MotionEventActions.Down when HeaderShown && y < TabH:
                 scrollStartX = x; scrollStartValue = tabScroll;
                 headerTouch = true; scrollingTabs = false; dragFrom = -1; dragging = false;
                 break;
@@ -161,7 +163,7 @@ public class Panels
         if (!Context.IsWorldReady && Game1.activeClickableMenu is TitleMenu tm) { TapTitle(tm, x, y); return; }
         if (Idle) return;
         if (numpadMax > 0) { TapNumpad(x, y - ContentShift); return; }
-        if (y < TabH)
+        if (HeaderShown && y < TabH)
         {
             int i = (x + tabScroll - TabGap) / (TabW + TabGap);
             var visible = Visible;
@@ -217,7 +219,7 @@ public class Panels
             b.End();
             b.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp);
         }
-        DrawHeader(b, shown);
+        if (HeaderShown) DrawHeader(b, shown);
     }
 
     // ---------- shared ----------
