@@ -1405,12 +1405,15 @@ public class Panels
         else
         {
             var stock = shop.itemPriceAndStock[shopPick];
-            SlotFrame(b, 22, 274, 64);
-            if (shopPick is Item pickItem) Item(b, pickItem, 22, 274, 64);
-            Text(b, shopPick.DisplayName, new Vector2(98, 276));
-            Icon(b, Game1.mouseCursors, Coin, 98, 308, 2);
-            Text(b, stock.Price.ToString(), new Vector2(120, 304));
-            if (stock.Stock != int.MaxValue) Text(b, $"{stock.Stock} left", new Vector2(190, 304), Faint);
+            SlotFrame(b, 22, 270, 56);
+            if (shopPick is Item pickItem) Item(b, pickItem, 22, 270, 56);
+            Text(b, shopPick.DisplayName, new Vector2(90, 270));
+            Icon(b, Game1.mouseCursors, Coin, 90, 302, 2);
+            Text(b, stock.Price.ToString(), new Vector2(112, 298));
+            if (stock.Stock != int.MaxValue) Text(b, $"{stock.Stock} left", new Vector2(182, 298), Faint);
+            // The description the top screen shows in its tooltip, beside the Buy buttons.
+            float dy = 330;
+            Wrapped(b, shopPick.getDescription().Replace('\n', ' '), 22, ref dy, 244, Faint, 2);
             int money = ShopMenu.getPlayerCurrencyAmount(Game1.player, shop.currency);
             for (int i = 0; i < BuyRects.Length; i++)
             {
