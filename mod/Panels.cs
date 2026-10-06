@@ -70,7 +70,7 @@ public class Panels
     List<NPC> lovedBy = new(), likedBy = new();
     List<string> bundles = new();
 
-    public int RedrawInterval => TitleAnimating ? 2 : Showing switch { Tab.Aim => 2, Tab.Bag => dragging ? 2 : 15, Tab.Craft or Tab.Shop or Tab.People => listTouch ? 2 : 30, _ => 30 };
+    public int RedrawInterval => TitleAnimating ? 2 : Game1.gameMode == Game1.loadingMode || Showing == Tab.Saving ? 6 : Showing switch { Tab.Aim => 2, Tab.Bag => dragging ? 2 : 15, Tab.Craft or Tab.Shop or Tab.People => listTouch ? 2 : 30, _ => 30 };
 
     /// <summary>Menu whose inventory the Bag panel drives, e.g. a chest or a shop.</summary>
     static InventoryMenu OpenInventory => Game1.activeClickableMenu switch
@@ -207,7 +207,9 @@ public class Panels
             else if (shown == Tab.Bundle) DrawBundle(b, (JunimoNoteMenu)Game1.activeClickableMenu);
             else if (shown == Tab.Shipped) DrawShipped(b, (ShippingMenu)Game1.activeClickableMenu);
             else if (shown == Tab.LevelUp) DrawLevelUp(b, (LevelUpMenu)Game1.activeClickableMenu);
-            else if (shown == Tab.Saving) { Card(b, 160, 240, 300, 80); Text(b, "Saving...", new Vector2(256, 266)); }
+            // Drawn inside the shifted content layer, so cancel the shift to sit in the same corner.
+            else if (shown == Tab.Saving)
+                DrawLoadingStrip(b, Game1.content.LoadString("Strings\\StringsFromCSFiles:SaveGameMenu.cs.11378").TrimEnd('.'), ContentShift);
             else
             {
                 DrawBag(b);
@@ -224,8 +226,24 @@ public class Panels
 
     // ---------- shared ----------
 
+    /// <summary>The game's load-screen strip: its own font on a scroll, dots cycling every third of a second,
+    /// bottom-left like the top screen.</summary>
+    static void DrawLoadingStrip(SpriteBatch b, string label, int yShift = 0)
+    {
+        string dots = "".PadRight((int)Math.Ceiling(Game1.currentGameTime.TotalGameTime.TotalMilliseconds % 999.0 / 333.0), '.');
+        string widest = label + "... ";
+        StardewValley.BellsAndWhistles.SpriteText.drawString(b, label + dots, 32, ModEntry.H - 96 - yShift, 999999,
+            StardewValley.BellsAndWhistles.SpriteText.getWidthOfString(widest), 64, 1f, 0.88f, false, 0, widest);
+    }
+
     void DrawLogo(SpriteBatch b)
     {
+        if (Game1.gameMode == Game1.loadingMode)
+        {
+            b.Draw(Game1.staminaRect, new Rectangle(0, 0, ModEntry.W, ModEntry.H), Game1.bgColor);
+            DrawLoadingStrip(b, Game1.content.LoadString("Strings\\StringsFromCSFiles:Game1.cs.3688"));
+            return;
+        }
         logo ??= Game1.content.Load<Texture2D>("Minigames\\TitleButtons");
         var src = new Rectangle(0, 0, 398, 187);
         b.Draw(logo, new Vector2((ModEntry.W - src.Width) / 2, (ModEntry.H - src.Height) / 2), src, Color.White * 0.6f);
@@ -2002,8 +2020,7 @@ public class Panels
                 break;
 
             case LoadGameMenu lm when lm.IsDoingTask():
-                Card(b, 160, 220, 300, 80);
-                Text(b, "Loading...", new Vector2(250, 248));
+                DrawLoadingStrip(b, Game1.content.LoadString("Strings\\StringsFromCSFiles:Game1.cs.3688"));
                 break;
 
             case LoadGameMenu lm:
