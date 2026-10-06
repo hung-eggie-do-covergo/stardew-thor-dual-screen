@@ -1674,7 +1674,9 @@ public class Panels
         switch (TitleMenu.subMenu)
         {
             case null:
-                for (int i = 0; i < Math.Min(tm.buttons.Count, 4); i++)
+                // Mirror the top screen: nothing during the intro, then buttons as the game reveals them.
+                if (!TitleReady(tm)) { Text(b, "Tap to skip", new Vector2(ModEntry.W / 2 - 50, ModEntry.H - 60), Color.White * 0.8f); break; }
+                for (int i = 0; i < Math.Min(Math.Min(tm.buttons.Count, 4), tm.buttonsToShow); i++)
                     b.Draw(tm.titleButtonsTexture, TitleButton(i), tm.buttons[i].sourceRect, Color.White);
                 break;
 
@@ -1743,7 +1745,9 @@ public class Panels
         switch (TitleMenu.subMenu)
         {
             case null:
-                for (int i = 0; i < Math.Min(tm.buttons.Count, 4); i++)
+                // During the intro any tap skips it, like clicking the top screen.
+                if (!TitleReady(tm)) { tm.receiveLeftClick(Game1.uiViewport.Width / 2, Game1.uiViewport.Height / 2); return; }
+                for (int i = 0; i < Math.Min(Math.Min(tm.buttons.Count, 4), tm.buttonsToShow); i++)
                     if (TitleButton(i).Contains(x, y))
                     {
                         // The top-screen copy is hidden, and hidden buttons ignore clicks; show it just for this one.
@@ -1767,6 +1771,9 @@ public class Panels
                 break;
         }
     }
+
+    /// <summary>The title is done animating in and takes clicks, the same checks the game uses.</summary>
+    static bool TitleReady(TitleMenu tm) => tm.titleInPosition && tm.logoFadeTimer <= 0 && tm.fadeFromWhiteTimer <= 0;
 
     static void ClickBack(TitleMenu tm)
     {
