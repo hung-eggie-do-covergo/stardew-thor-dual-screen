@@ -8,6 +8,7 @@ using StardewValley;
 using StardewValley.Locations;
 using StardewValley.Menus;
 using StardewValley.TerrainFeatures;
+using StardewValley.WorldMaps;
 using SObject = StardewValley.Object;
 
 namespace DualScreen;
@@ -633,9 +634,13 @@ public class Panels
 
     // ---------- People ----------
 
-    const int PeopleRowH = 72, PeopleColW = 294;
-    static readonly Rectangle PeopleView = new(14, 66, 2 * PeopleColW, 454);
-    NPC giftsFocus;
+    // Left: a scrolling list of names. Right: the picked villager on the game's own world map.
+    const int PeopleRowH = 48;
+    static readonly Rectangle PeopleView = new(14, 66, 224, 454);
+    static readonly Rectangle SeeGifts = new(268, 452, 330, 64);
+    const float MapScale = 0.25f; // world-map coordinates are 4x; 0.25 draws the source art pixel for pixel
+    static readonly Point MapOrigin = new(284, 74);
+    NPC giftsFocus, personPick;
 
     /// <summary>Villagers where you are first, then by place, then by name.</summary>
     static List<NPC> People()
@@ -653,13 +658,14 @@ public class Panels
     static string PlaceName(GameLocation loc) =>
         System.Text.RegularExpressions.Regex.Replace(loc.DisplayName, "(?<=[a-z])(?=[A-Z])", " ");
 
-    Rectangle PersonRect(int i) =>
-        new(PeopleView.X + i % 2 * PeopleColW, PeopleView.Y + i / 2 * PeopleRowH - gridScroll, PeopleColW - 6, PeopleRowH - 6);
+    Rectangle PersonRect(int i) => new(PeopleView.X, PeopleView.Y + i * PeopleRowH - gridScroll, PeopleView.Width, PeopleRowH - 4);
 
     void DrawPeople(SpriteBatch b)
     {
-        Card(b, 8, 58, 604, 470);
         var people = People();
+        if (personPick != null && !people.Contains(personPick)) personPick = null;
+
+        Card(b, 8, 58, 236, 470);
         DrawScrolled(b, PeopleView, () =>
         {
             for (int i = 0; i < people.Count; i++)
@@ -667,30 +673,71 @@ public class Panels
                 var r = PersonRect(i);
                 if (r.Bottom < PeopleView.Y || r.Y > PeopleView.Bottom) continue;
                 var npc = people[i];
-                bool here = npc.currentLocation == Game1.currentLocation;
-                Card(b, r.X, r.Y, r.Width, r.Height);
-                Head(b, npc, r.X + 12, r.Y + 17);
-                Text(b, npc.displayName, new Vector2(r.X + 54, r.Y + 8));
-                string place = PlaceName(npc.currentLocation);
-                while (place.Length > 3 && Game1.smallFont.MeasureString(place).X > r.Width - 96) place = place[..^2].TrimEnd() + ".";
-                // Green when they're in the same place as you.
-                Text(b, place, new Vector2(r.X + 54, r.Y + 34), here ? Color.DarkGreen : Faint);
-                if (npc.isBirthday()) Icon(b, Game1.mouseCursors, Gift, r.Right - 40, r.Y + 19, 2);
+                if (npc == personPick) b.Draw(Game1.staminaRect, r, Color.White * 0.5f);
+                Head(b, npc, r.X + 4, r.Y + 6);
+                Text(b, npc.displayName, new Vector2(r.X + 44, r.Y + 10), npc.currentLocation == Game1.currentLocation ? Color.DarkGreen : Ink);
+                if (npc.isBirthday()) Icon(b, Game1.mouseCursors, Gift, r.Right - 32, r.Y + 8, 2);
             }
         });
+
+        Card(b, 252, 58, 360, 470);
+        if (personPick == null) { Text(b, "Tap a name to find them.", new Vector2(270, 74), Faint); return; }
+        var pos = WorldMapManager.GetPositionData(personPick.currentLocation, personPick.TilePoint);
+        if (pos is MapAreaPositionWithContext p) DrawMiniMap(b, p);
+        else Text(b, "Not on the map right now.", new Vector2(270, 120), Faint);
+
+        Portrait(b, personPick, 268, 270);
+        Text(b, personPick.displayName, new Vector2(352, 276));
+        float y = 304;
+        Wrapped(b, PlaceName(personPick.currentLocation), 352, ref y, 248, personPick.currentLocation == Game1.currentLocation ? Color.DarkGreen : Faint, 2);
+        if (personPick.isBirthday()) Text(b, "Birthday today!", new Vector2(352, 356), Color.DarkRed);
+
+        Card(b, SeeGifts.X, SeeGifts.Y, SeeGifts.Width, SeeGifts.Height);
+        Icon(b, Game1.mouseCursors, Gift, SeeGifts.X + 16, SeeGifts.Y + 18, 2);
+        Text(b, "See gifts", new Vector2(SeeGifts.X + 56, SeeGifts.Y + 18));
+    }
+
+    /// <summary>The game's world map for that region, with the villager's head pinned and you marked.</summary>
+    void DrawMiniMap(SpriteBatch b, MapAreaPositionWithContext pos)
+    {
+        var region = pos.Data.Region;
+        Vector2 ToPanel(Vector2 mapPixel) => new(MapOrigin.X + mapPixel.X * MapScale, MapOrigin.Y + mapPixel.Y * MapScale);
+        void DrawTex(MapAreaTexture t)
+        {
+            var a = t.MapPixelArea;
+            var at = ToPanel(new Vector2(a.X, a.Y));
+            b.Draw(t.Texture, new Rectangle((int)at.X, (int)at.Y, (int)(a.Width * MapScale), (int)(a.Height * MapScale)), t.SourceRect, Color.White);
+        }
+        if (region.GetBaseTexture() is MapAreaTexture baseTex) DrawTex(baseTex);
+        foreach (var area in region.GetAreas())
+            foreach (var t in area.GetTextures()) DrawTex(t);
+
+        // You: a small red square, only if you're in the same region.
+        var me = WorldMapManager.GetPositionData(Game1.currentLocation, Game1.player.TilePoint);
+        if (me is MapAreaPositionWithContext m && m.Data.Region.Id == region.Id)
+        {
+            var at = ToPanel(m.GetMapPixelPosition());
+            b.Draw(Game1.staminaRect, new Rectangle((int)at.X - 4, (int)at.Y - 4, 8, 8), Color.Red);
+        }
+        // Them: their head, centred on the spot, with a dark outline so it reads on any terrain.
+        var pin = ToPanel(pos.GetMapPixelPosition());
+        b.Draw(Game1.staminaRect, new Rectangle((int)pin.X - 18, (int)pin.Y - 18, 36, 36), Ink * 0.8f);
+        Head(b, personPick, (int)pin.X - 16, (int)pin.Y - 16);
     }
 
     void TapPeople(int x, int y)
     {
+        if (personPick != null && SeeGifts.Contains(x, y))
+        {
+            var who = personPick;
+            Open(Tab.Gifts);
+            giftsFocus = who;
+            return;
+        }
         if (!PeopleView.Contains(x, y)) return;
         var people = People();
         for (int i = 0; i < people.Count; i++)
-        {
-            if (!PersonRect(i).Contains(x, y)) continue;
-            Open(Tab.Gifts);
-            giftsFocus = people[i];
-            return;
-        }
+            if (PersonRect(i).Contains(x, y)) { personPick = people[i]; return; }
     }
 
     // ---------- Bag ----------
@@ -985,7 +1032,7 @@ public class Panels
     int GridCount => Showing == Tab.Shop && Game1.activeClickableMenu is ShopMenu shop ? shop.forSale.Count : recipes.Count;
 
     int MaxGridScroll => Showing == Tab.People
-        ? Math.Max(0, (People().Count + 1) / 2 * PeopleRowH - PeopleView.Height)
+        ? Math.Max(0, People().Count * PeopleRowH - PeopleView.Height)
         : Math.Max(0, (GridCount + RecipeCols - 1) / RecipeCols * RecipeStep - GridView.Height);
 
     /// <summary>The scrolling window of whichever list is showing.</summary>

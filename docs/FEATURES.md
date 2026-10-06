@@ -23,8 +23,9 @@ their hearts, this week's gifts and what they love. No more wiki tab open beside
 
 ## People
 
-Where every villager is right now: whoever is in your area first (in green), then by place. A gift
-box marks today's birthday. Tap someone to open Gifts on them, wherever they are.
+Every villager by name, with whoever is in your area first (in green) and a gift box on today's
+birthday. Tap a name to see them pinned on the game's own world map, with a red mark for you, plus
+where they are. "See gifts" opens Gifts on them, wherever they are.
 
 ![People tab](screenshots/people.png)
 
