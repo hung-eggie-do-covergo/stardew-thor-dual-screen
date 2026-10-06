@@ -60,6 +60,10 @@ public class ModEntry : Mod
                 var displays = dm.GetDisplays(DisplayManager.DisplayCategoryPresentation);
                 if (displays.Length == 0) { Monitor.Log("No second screen found.", LogLevel.Warn); return; }
 
+                // Before the view exists: Render posts to these as soon as it sees the view.
+                ui = new Android.OS.Handler(Android.OS.Looper.MainLooper!);
+                pushFrame = new Java.Lang.Runnable(PushFrame);
+                exitCheck = new Java.Lang.Runnable(CheckExit);
                 window = new Presentation(activity, displays[0]);
                 // Never take key focus: the pad must keep driving the game.
                 window.Window.AddFlags(WindowManagerFlags.NotFocusable);
@@ -75,7 +79,7 @@ public class ModEntry : Mod
                 };
                 window.SetContentView(view);
                 window.Show();
-                WatchForExit();
+                ui.PostDelayed(exitCheck, 500);
             }
             catch (Exception ex) { Monitor.Log($"Couldn't open the bottom screen: {ex}", LogLevel.Error); }
         });
@@ -106,26 +110,40 @@ public class ModEntry : Mod
 
     /// <summary>The game loop stops when the game exits, so also watch from Android's side: once the game's
     /// activity is finishing, close the bottom window.</summary>
-    void WatchForExit()
+    void CheckExit()
     {
-        var handler = new Android.OS.Handler(Android.OS.Looper.MainLooper!);
-        void Check()
-        {
-            if (window == null) return;
-            if (activity.IsFinishing || activity.IsDestroyed)
-            {
-                CloseWindow();
-                return;
-            }
-            handler.PostDelayed(Check, 500);
-        }
-        handler.PostDelayed(Check, 500);
+        if (window == null) return;
+        if (activity.IsFinishing || activity.IsDestroyed) { CloseWindow(); return; }
+        ui.PostDelayed(exitCheck, 500);
+    }
+
+    // One Java Runnable each, made once: a new one per frame (RunOnUiThread) meant ~30 new Java objects a
+    // second for the garbage collector to cross-check, which costs pauses.
+    Android.OS.Handler ui;
+    Java.Lang.Runnable pushFrame, exitCheck;
+    volatile int readyFlip = -1;
+
+    /// <summary>UI thread: copy the latest read-back frame into its bitmap and show it.</summary>
+    void PushFrame()
+    {
+        var v = view;
+        int f = readyFlip;
+        if (v == null || f < 0) return;
+        var buf = bytes[f];
+        var direct = pixels[f] ??= Java.Nio.ByteBuffer.AllocateDirect(buf.Length);
+        Marshal.Copy(buf, 0, Android.Runtime.JNIEnv.GetDirectBufferAddress(direct.Handle), buf.Length);
+        direct.Rewind();
+        var bmp = bitmaps[f] ??= Bitmap.CreateBitmap(W, H, Bitmap.Config.Argb8888);
+        bmp.CopyPixelsFromBuffer(direct);
+        v.SetImageDrawable(drawables[f] ??= NewDrawable(bmp));
+        v.Invalidate();
     }
 
     void OnUpdateTicked(object sender, UpdateTickedEventArgs e)
     {
         if (view == null) return;
         if (Game1.quit) { CloseWindow(); return; }
+        TrackFrame();
         panels.Tick();
 
         while (touches.TryDequeue(out var t))
@@ -170,23 +188,43 @@ public class ModEntry : Mod
 
         // The Java-side copy runs on the UI thread so the game thread only pays for draw + readback.
         // Each flip has its own byte array, bitmap and drawable, so the next readback can't race it.
-        activity.RunOnUiThread(() =>
-        {
-            var direct = pixels[f] ??= Java.Nio.ByteBuffer.AllocateDirect(buf.Length);
-            Marshal.Copy(buf, 0, Android.Runtime.JNIEnv.GetDirectBufferAddress(direct.Handle), buf.Length);
-            direct.Rewind();
-            var bmp = bitmaps[f] ??= Bitmap.CreateBitmap(W, H, Bitmap.Config.Argb8888);
-            bmp.CopyPixelsFromBuffer(direct);
-            view.SetImageDrawable(drawables[f] ??= NewDrawable(bmp));
-            view.Invalidate();
-        });
+        readyFlip = f;
+        ui.Post(pushFrame);
 
         drawTicks += drawn; readTicks += readDone - drawn;
+        maxUpdate = Math.Max(maxUpdate, readDone);
+        maxDraw = Math.Max(maxDraw, drawn);
+        maxRead = Math.Max(maxRead, readDone - drawn);
+        renderedThisTick = true;
         if (++frames % 300 == 0)
         {
-            Monitor.Log($"Bottom screen ms/update: draw {drawTicks / frames / 1e4:0.00}, read {readTicks / frames / 1e4:0.00}", LogLevel.Trace);
+            Monitor.Log($"Bottom screen ms/update: draw {drawTicks / frames / 1e4:0.00}, read {readTicks / frames / 1e4:0.00}, worst {maxUpdate / 1e4:0.0} (draw {maxDraw / 1e4:0.0}, read {maxRead / 1e4:0.0}) on {panels.ShowingName}", LogLevel.Trace);
             drawTicks = readTicks = frames = 0;
+            maxUpdate = maxDraw = maxRead = 0;
         }
+    }
+
+    // Stutter diagnostics: game frames over 50 ms, and whether the bottom screen or a GC was in them.
+    readonly Stopwatch frameClock = Stopwatch.StartNew();
+    long maxUpdate, maxDraw, maxRead;
+    bool renderedThisTick;
+    int slowFrames, slowWithRender, slowWithGc, lastGcCount;
+
+    void TrackFrame()
+    {
+        double ms = frameClock.Elapsed.TotalMilliseconds;
+        frameClock.Restart();
+        int gc = GC.CollectionCount(0);
+        if (ms > 50)
+        {
+            slowFrames++;
+            if (renderedThisTick) slowWithRender++;
+            if (gc != lastGcCount) slowWithGc++;
+            if (slowFrames % 10 == 0)
+                Monitor.Log($"Slow frames: {slowFrames} (last {ms:0} ms); with a bottom-screen update {slowWithRender}, with a GC {slowWithGc}; GCs so far {gc}/{GC.CollectionCount(1)}/{GC.CollectionCount(2)}", LogLevel.Trace);
+        }
+        lastGcCount = gc;
+        renderedThisTick = false;
     }
 
     BitmapDrawable NewDrawable(Bitmap bmp)

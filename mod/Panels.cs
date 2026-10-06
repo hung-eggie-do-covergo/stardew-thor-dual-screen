@@ -98,6 +98,8 @@ public class Panels
 
     Tab? Showing => Idle ? null : MenuLayout ?? tab;
 
+    public string ShowingName => Showing?.ToString() ?? (Context.IsWorldReady ? "logo" : "title");
+
     // Header strip scroll, in pixels; swiping the header moves it.
     int tabScroll, scrollStartX, scrollStartValue;
     bool scrollingTabs, headerTouch;
