@@ -23,11 +23,14 @@ their hearts, this week's gifts and what they love. No more wiki tab open beside
 
 ## People
 
-Every villager by name, with whoever is in your area first (in green) and a gift box on today's
-birthday. Tap a name to see them pinned on the game's own world map, with a red mark for you, plus
-where they are. "See gifts" opens Gifts on them, wherever they are.
+Everyone you've met (nobody you haven't, so no spoilers), with whoever is in your area first in
+green and a gift box on today's birthday. Tap a name, then switch between **Map**, the game's own
+world map with them pinned and you marked, and **Gifts**: their hearts, this week's gifts, how they'd
+take what you're holding, and what they love.
 
-![People tab](screenshots/people.png)
+![People tab: map view](screenshots/people.png)
+
+![People tab: gifts view](screenshots/people-gifts.png)
 
 ## Bag
 

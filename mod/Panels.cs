@@ -57,8 +57,6 @@ public class Panels
 
     void Open(Tab t)
     {
-        // A villager picked on People shows on Gifts only until you switch away.
-        if (t != Tab.Gifts) giftsFocus = null;
         gridScroll = 0;
         tab = t;
         config.LastTab = t.ToString();
@@ -508,35 +506,41 @@ public class Panels
 
         // Right card: the nearest villager.
         Card(b, 316, 58, 296, 474 - ContentShift);
-        var npc = giftsFocus ?? NearestVillager(8);
+        var npc = NearestVillager(8);
         if (npc == null) { Text(b, "Nobody nearby.", new Vector2(330, 70), Faint); return; }
 
-        Portrait(b, npc, 330, 70);
-        Text(b, npc.displayName, new Vector2(412, 72));
+        DrawVillager(b, npc, held, 330, 70);
+    }
+
+    /// <summary>Portrait, hearts, this week's gifts, the held item's reaction and loved items, from (ox, oy).</summary>
+    void DrawVillager(SpriteBatch b, NPC npc, SObject held, int ox, int oy)
+    {
+        Portrait(b, npc, ox, oy);
+        Text(b, npc.displayName, new Vector2(ox + 82, oy + 2));
         Game1.player.friendshipData.TryGetValue(npc.Name, out var f);
-        Hearts(b, (f?.Points ?? 0) / NPC.friendshipPointsPerHeartLevel, 412, 104);
-        if (f == null) Text(b, "Not met yet", new Vector2(412, 120), Faint);
+        Hearts(b, (f?.Points ?? 0) / NPC.friendshipPointsPerHeartLevel, ox + 82, oy + 34);
+        if (f == null) Text(b, "Not met yet", new Vector2(ox + 82, oy + 50), Faint);
         else
         {
             // Same gift/week markers as the social page.
-            Icon(b, Game1.mouseCursors, Gift, 412, 120, 2);
-            Icon(b, Game1.mouseCursors, f.GiftsThisWeek >= 1 ? CheckOn : CheckOff, 446, 124, 2);
-            Icon(b, Game1.mouseCursors, f.GiftsThisWeek >= 2 ? CheckOn : CheckOff, 468, 124, 2);
-            if (npc.isBirthday()) Text(b, "Birthday!", new Vector2(496, 122), Color.DarkRed);
+            Icon(b, Game1.mouseCursors, Gift, ox + 82, oy + 50, 2);
+            Icon(b, Game1.mouseCursors, f.GiftsThisWeek >= 1 ? CheckOn : CheckOff, ox + 116, oy + 54, 2);
+            Icon(b, Game1.mouseCursors, f.GiftsThisWeek >= 2 ? CheckOn : CheckOff, ox + 138, oy + 54, 2);
+            if (npc.isBirthday()) Text(b, "Birthday!", new Vector2(ox + 166, oy + 52), Color.DarkRed);
         }
 
         if (held != null && npc.CanReceiveGifts())
         {
             int t = npc.getGiftTasteForThisItem(held);
-            Icon(b, Game1.mouseCursors, t == NPC.gift_taste_love || t == NPC.gift_taste_like ? HeartFull : HeartEmpty, 330, 160, 2);
-            Text(b, Taste(t), new Vector2(350, 152), t == NPC.gift_taste_love ? Color.DarkGreen : t >= NPC.gift_taste_dislike && t != 8 ? Color.DarkRed : Ink);
+            Icon(b, Game1.mouseCursors, t == NPC.gift_taste_love || t == NPC.gift_taste_like ? HeartFull : HeartEmpty, ox + 0, oy + 90, 2);
+            Text(b, Taste(t), new Vector2(ox + 20, oy + 82), t == NPC.gift_taste_love ? Color.DarkGreen : t >= NPC.gift_taste_dislike && t != 8 ? Color.DarkRed : Ink);
         }
 
-        Text(b, "Loves", new Vector2(330, 184), Faint);
+        Text(b, "Loves", new Vector2(ox + 0, oy + 114), Faint);
         int i = 0;
         foreach (var item in Loves(npc).Take(24))
         {
-            int x = 330 + i % 6 * 46, y = 210 + i / 6 * 46;
+            int x = ox + i % 6 * 46, y = oy + 140 + i / 6 * 46;
             SlotFrame(b, x, y, 44);
             Item(b, item, x + 2, y + 2, 40);
             i++;
@@ -593,7 +597,8 @@ public class Panels
         lovedBy = new(); likedBy = new();
         Utility.ForEachVillager(npc =>
         {
-            if (npc.CanReceiveGifts())
+            // Skip people you haven't met yet: showing their faces would spoil them.
+            if (npc.CanReceiveGifts() && Met(npc))
             {
                 int t = npc.getGiftTasteForThisItem(held);
                 if (t == NPC.gift_taste_love) lovedBy.Add(npc);
@@ -637,16 +642,21 @@ public class Panels
     // Left: a scrolling list of names. Right: the picked villager on the game's own world map.
     const int PeopleRowH = 48;
     static readonly Rectangle PeopleView = new(14, 66, 224, 454);
-    static readonly Rectangle SeeGifts = new(268, 452, 330, 64);
+    // Map | Gifts switch at the top of the right card; both views stay on this tab.
+    static readonly Rectangle ShowMap = new(262, 66, 168, 52), ShowGifts = new(436, 66, 168, 52);
+    bool personGifts;
     const float MapScale = 0.25f; // world-map coordinates are 4x; 0.25 draws the source art pixel for pixel
-    static readonly Point MapOrigin = new(284, 74);
-    NPC giftsFocus, personPick;
+    static readonly Point MapOrigin = new(284, 128);
+    NPC personPick;
 
-    /// <summary>Villagers where you are first, then by place, then by name.</summary>
+    static bool Met(NPC n) => n.CanSocialize && Game1.player.friendshipData.ContainsKey(n.Name);
+
+    /// <summary>Villagers you've met, where you are first, then by place, then by name.</summary>
     static List<NPC> People()
     {
         var list = new List<NPC>();
-        Utility.ForEachVillager(n => { if (n.CanSocialize && n.currentLocation != null) list.Add(n); return true; });
+        // Only people you've met, so the list doesn't spoil who's out there.
+        Utility.ForEachVillager(n => { if (Met(n) && n.currentLocation != null) list.Add(n); return true; });
         var here = Game1.currentLocation;
         return list.OrderBy(n => n.currentLocation == here ? 0 : 1)
             .ThenBy(n => n.currentLocation.DisplayName)
@@ -682,19 +692,25 @@ public class Panels
 
         Card(b, 252, 58, 360, 470);
         if (personPick == null) { Text(b, "Tap a name to find them.", new Vector2(270, 74), Faint); return; }
+        foreach (var (r, label, on, icon) in new[] { (ShowMap, "Map", !personGifts, false), (ShowGifts, "Gifts", personGifts, true) })
+        {
+            IClickableMenu.drawTextureBox(b, Game1.mouseCursors, BoxSrc, r.X, r.Y, r.Width, r.Height, on ? Color.White : new Color(200, 160, 120), 2f, false);
+            if (icon) Icon(b, Game1.mouseCursors, Gift, r.X + 16, r.Y + 13, 2);
+            else Icon(b, Game1.mouseCursors, new Rectangle(48, 368, 16, 16), r.X + 12, r.Y + 10, 2);
+            Text(b, label, new Vector2(r.X + 56, r.Y + 14), on ? Ink : Faint);
+        }
+
+        if (personGifts) { DrawVillager(b, personPick, Game1.player.ActiveObject, 268, 132); return; }
+
         var pos = WorldMapManager.GetPositionData(personPick.currentLocation, personPick.TilePoint);
         if (pos is MapAreaPositionWithContext p) DrawMiniMap(b, p);
-        else Text(b, "Not on the map right now.", new Vector2(270, 120), Faint);
+        else Text(b, "Not on the map right now.", new Vector2(270, 200), Faint);
 
-        Portrait(b, personPick, 268, 270);
-        Text(b, personPick.displayName, new Vector2(352, 276));
-        float y = 304;
+        Portrait(b, personPick, 268, 318);
+        Text(b, personPick.displayName, new Vector2(352, 324));
+        float y = 352;
         Wrapped(b, PlaceName(personPick.currentLocation), 352, ref y, 248, personPick.currentLocation == Game1.currentLocation ? Color.DarkGreen : Faint, 2);
-        if (personPick.isBirthday()) Text(b, "Birthday today!", new Vector2(352, 356), Color.DarkRed);
-
-        Card(b, SeeGifts.X, SeeGifts.Y, SeeGifts.Width, SeeGifts.Height);
-        Icon(b, Game1.mouseCursors, Gift, SeeGifts.X + 16, SeeGifts.Y + 18, 2);
-        Text(b, "See gifts", new Vector2(SeeGifts.X + 56, SeeGifts.Y + 18));
+        if (personPick.isBirthday()) Text(b, "Birthday today!", new Vector2(352, 404), Color.DarkRed);
     }
 
     /// <summary>The game's world map for that region, with the villager's head pinned and you marked.</summary>
@@ -727,13 +743,8 @@ public class Panels
 
     void TapPeople(int x, int y)
     {
-        if (personPick != null && SeeGifts.Contains(x, y))
-        {
-            var who = personPick;
-            Open(Tab.Gifts);
-            giftsFocus = who;
-            return;
-        }
+        if (personPick != null && ShowMap.Contains(x, y)) { personGifts = false; return; }
+        if (personPick != null && ShowGifts.Contains(x, y)) { personGifts = true; return; }
         if (!PeopleView.Contains(x, y)) return;
         var people = People();
         for (int i = 0; i < people.Count; i++)
