@@ -17,7 +17,7 @@ namespace DualScreen;
 public class Panels
 {
     // Choices and Shop aren't in the strip: they take over while that kind of menu is open on top.
-    enum Tab { Today, Gifts, People, Bag, Craft, Aim, Tabs, Choices, Shop, Bundle }
+    enum Tab { Today, Gifts, People, Bag, Craft, Aim, Tabs, Choices, Shop, Bundle, Shipped, LevelUp, Saving }
 
     static readonly Tab[] Movable = { Tab.Today, Tab.Gifts, Tab.People, Tab.Bag, Tab.Craft, Tab.Aim };
     // Tabs keep a fixed size (about 24x10 mm on the Thor) and the strip scrolls sideways when they don't fit.
@@ -87,6 +87,9 @@ public class Panels
         DialogueBox { isQuestion: true } d when d.responses.Length > 0 => Tab.Choices,
         ShopMenu => Tab.Shop,
         JunimoNoteMenu => Tab.Bundle,
+        ShippingMenu => Tab.Shipped,
+        LevelUpMenu => Tab.LevelUp,
+        SaveGameMenu => Tab.Saving,
         MenuWithInventory => Tab.Bag,
         _ => null,
     };
@@ -172,6 +175,8 @@ public class Panels
         else if (Showing == Tab.Choices) TapChoices(x, y - ContentShift);
         else if (Showing == Tab.Shop) TapShop(x, y - ContentShift);
         else if (Showing == Tab.Bundle) TapBundle((JunimoNoteMenu)Game1.activeClickableMenu, x, y - ContentShift);
+        else if (Showing == Tab.Shipped) TapShipped((ShippingMenu)Game1.activeClickableMenu, x, y - ContentShift);
+        else if (Showing == Tab.LevelUp) TapLevelUp((LevelUpMenu)Game1.activeClickableMenu, x, y - ContentShift);
         else if (Showing == Tab.Aim) TapAim(x, y);
     }
 
@@ -198,6 +203,9 @@ public class Panels
             else if (shown == Tab.Choices) DrawChoices(b);
             else if (shown == Tab.Shop) DrawShop(b);
             else if (shown == Tab.Bundle) DrawBundle(b, (JunimoNoteMenu)Game1.activeClickableMenu);
+            else if (shown == Tab.Shipped) DrawShipped(b, (ShippingMenu)Game1.activeClickableMenu);
+            else if (shown == Tab.LevelUp) DrawLevelUp(b, (LevelUpMenu)Game1.activeClickableMenu);
+            else if (shown == Tab.Saving) { Card(b, 160, 240, 300, 80); Text(b, "Saving...", new Vector2(256, 266)); }
             else
             {
                 DrawBag(b);
@@ -902,6 +910,109 @@ public class Panels
         else Status("This bundle doesn't need that");
         // Whatever wasn't needed goes back into the bag.
         if (note.heldItem != null && Game1.player.addItemToInventoryBool(note.heldItem)) note.heldItem = null;
+    }
+
+    // ---------- End of day: shipping summary, level up ----------
+
+    static Rectangle ShippedRow(int i) => new(8, 58 + i * 66, 604, 62);
+    static readonly Rectangle EndContinue = new(352, 466, 260, 62), EndBack = new(8, 466, 200, 62);
+
+    void DrawShipped(SpriteBatch b, ShippingMenu menu)
+    {
+        var totals = helper.Reflection.GetField<List<int>>(menu, "categoryTotals").GetValue();
+        var items = helper.Reflection.GetField<List<List<Item>>>(menu, "categoryItems").GetValue();
+        if (menu.currentPage >= 0)
+        {
+            // A category is open on top: list what was shipped in it.
+            Card(b, 8, 58, 604, 400);
+            Text(b, menu.getCategoryName(menu.currentPage), new Vector2(22, 64));
+            var list = menu.currentPage < items.Count ? items[menu.currentPage] : new List<Item>();
+            for (int i = 0; i < Math.Min(list.Count, 24); i++)
+            {
+                int x = 22 + i % 2 * 296, y = 98 + i / 2 * 30;
+                Item(b, list[i], x, y - 4, 28);
+                Text(b, $"{list[i].DisplayName} x{list[i].Stack}", new Vector2(x + 34, y), Faint);
+            }
+            Card(b, EndBack.X, EndBack.Y, EndBack.Width, EndBack.Height);
+            Icon(b, Game1.mouseCursors, ArrowLeft, EndBack.X + 18, EndBack.Y + 20, 2.5f);
+            Text(b, "Summary", new Vector2(EndBack.X + 70, EndBack.Y + 18));
+            return;
+        }
+        // Summary: one row per category with what was shipped, then the day's total.
+        for (int i = 0; i < Math.Min(totals.Count, 6); i++)
+        {
+            var r = ShippedRow(i);
+            bool total = i == totals.Count - 1;
+            Card(b, r.X, r.Y, r.Width, r.Height);
+            Text(b, menu.getCategoryName(i), new Vector2(r.X + 16, r.Y + 18), total ? Ink : Faint);
+            if (!total && i < items.Count)
+                for (int k = 0; k < Math.Min(items[i].Count, 6); k++) Item(b, items[i][k], r.X + 180 + k * 40, r.Y + 13, 36);
+            string g = $"{Utility.getNumberWithCommas(totals[i])}g";
+            RightText(b, g, r.Right - 18, r.Y + 18, total ? Color.DarkGreen : Ink);
+        }
+        bool ready = helper.Reflection.GetField<int>(menu, "introTimer").GetValue() <= 0;
+        IClickableMenu.drawTextureBox(b, Game1.mouseCursors, BoxSrc, EndContinue.X, EndContinue.Y, EndContinue.Width, EndContinue.Height, ready ? Color.White : new Color(200, 160, 120), 2f, false);
+        Text(b, "Continue", new Vector2(EndContinue.X + 80, EndContinue.Y + 18), ready ? Ink : Faint);
+    }
+
+    void TapShipped(ShippingMenu menu, int x, int y)
+    {
+        if (menu.currentPage >= 0)
+        {
+            if (EndBack.Contains(x, y)) menu.currentPage = -1;
+            return;
+        }
+        if (EndContinue.Contains(x, y)) { menu.receiveLeftClick(menu.okButton.bounds.Center.X, menu.okButton.bounds.Center.Y); return; }
+        for (int i = 0; i < Math.Min(menu.categories.Count, 5); i++)
+            if (ShippedRow(i).Contains(x, y))
+                menu.receiveLeftClick(menu.categories[i].bounds.Center.X, menu.categories[i].bounds.Center.Y);
+    }
+
+    static readonly Rectangle LeftProfession = new(8, 150, 298, 300), RightProfession = new(314, 150, 298, 300);
+
+    void DrawLevelUp(SpriteBatch b, LevelUpMenu menu)
+    {
+        string title = helper.Reflection.GetField<string>(menu, "title").GetValue();
+        Card(b, 8, 58, 604, 86);
+        Text(b, title ?? "Level up!", new Vector2(22, 66));
+        if (!menu.isProfessionChooser)
+        {
+            var info = helper.Reflection.GetField<List<string>>(menu, "extraInfoForLevel").GetValue();
+            Card(b, 8, 150, 604, 300);
+            float y = 166;
+            foreach (var line in info) Wrapped(b, line, 22, ref y, 576, Ink, 3);
+            Card(b, EndContinue.X, EndContinue.Y, EndContinue.Width, EndContinue.Height);
+            Text(b, "Continue", new Vector2(EndContinue.X + 80, EndContinue.Y + 18));
+            return;
+        }
+        Text(b, "Choose a profession", new Vector2(22, 100), Faint);
+        foreach (var (r, field) in new[] { (LeftProfession, "leftProfessionDescription"), (RightProfession, "rightProfessionDescription") })
+        {
+            var desc = helper.Reflection.GetField<List<string>>(menu, field).GetValue();
+            Card(b, r.X, r.Y, r.Width, r.Height);
+            float y = r.Y + 16;
+            for (int i = 0; i < desc.Count; i++) Wrapped(b, desc[i], r.X + 16, ref y, r.Width - 32, i == 0 ? Color.DarkGreen : Ink, 4);
+        }
+    }
+
+    /// <summary>The level-up menu ignores clicks and polls the pad itself, so run its own pick steps.</summary>
+    void TapLevelUp(LevelUpMenu menu, int x, int y)
+    {
+        if (!menu.isActive || !menu.readyToClose()) return;
+        if (!menu.isProfessionChooser)
+        {
+            if (EndContinue.Contains(x, y) && menu.informationUp) menu.okButtonClicked();
+            return;
+        }
+        int pick = LeftProfession.Contains(x, y) ? 0 : RightProfession.Contains(x, y) ? 1 : -1;
+        if (pick < 0) return;
+        int profession = helper.Reflection.GetField<List<int>>(menu, "professionsToChoose").GetValue()[pick];
+        Game1.player.professions.Add(profession);
+        menu.getImmediateProfessionPerk(profession);
+        menu.isActive = false;
+        menu.informationUp = false;
+        menu.isProfessionChooser = false;
+        menu.RemoveLevelFromLevelList();
     }
 
     // ---------- Bag ----------
