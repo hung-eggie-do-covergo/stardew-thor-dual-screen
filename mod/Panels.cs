@@ -17,7 +17,7 @@ namespace DualScreen;
 public class Panels
 {
     // Choices and Shop aren't in the strip: they take over while that kind of menu is open on top.
-    enum Tab { Today, Gifts, People, Bag, Craft, Aim, Tabs, Choices, Shop }
+    enum Tab { Today, Gifts, People, Bag, Craft, Aim, Tabs, Choices, Shop, Bundle }
 
     static readonly Tab[] Movable = { Tab.Today, Tab.Gifts, Tab.People, Tab.Bag, Tab.Craft, Tab.Aim };
     // Tabs keep a fixed size (about 24x10 mm on the Thor) and the strip scrolls sideways when they don't fit.
@@ -86,6 +86,7 @@ public class Panels
     {
         DialogueBox { isQuestion: true } d when d.responses.Length > 0 => Tab.Choices,
         ShopMenu => Tab.Shop,
+        JunimoNoteMenu => Tab.Bundle,
         MenuWithInventory => Tab.Bag,
         _ => null,
     };
@@ -170,6 +171,7 @@ public class Panels
         else if (Showing == Tab.Tabs) TapTabSettings(x, y - ContentShift);
         else if (Showing == Tab.Choices) TapChoices(x, y - ContentShift);
         else if (Showing == Tab.Shop) TapShop(x, y - ContentShift);
+        else if (Showing == Tab.Bundle) TapBundle((JunimoNoteMenu)Game1.activeClickableMenu, x, y - ContentShift);
         else if (Showing == Tab.Aim) TapAim(x, y);
     }
 
@@ -195,6 +197,7 @@ public class Panels
             else if (shown == Tab.Tabs) DrawTabSettings(b);
             else if (shown == Tab.Choices) DrawChoices(b);
             else if (shown == Tab.Shop) DrawShop(b);
+            else if (shown == Tab.Bundle) DrawBundle(b, (JunimoNoteMenu)Game1.activeClickableMenu);
             else
             {
                 DrawBag(b);
@@ -807,6 +810,98 @@ public class Panels
             Game1.playSound("smallSelect");
             return;
         }
+    }
+
+    // ---------- Bundle (Community Center note on top) ----------
+
+    static Rectangle BundleCard(int i) => new(8 + i % 2 * 302, 98 + i / 2 * 72, 298, 66);
+    static readonly Rectangle BundleBack = new(8, 466, 200, 62);
+
+    void DrawBundle(SpriteBatch b, JunimoNoteMenu note)
+    {
+        if (!note.specificBundlePage)
+        {
+            // Room overview: the room's bundles as big cards, done ones dimmed with a check.
+            Text(b, "Pick a bundle", new Vector2(22, 64), Faint);
+            for (int i = 0; i < Math.Min(note.bundles.Count, 10); i++)
+            {
+                var bundle = note.bundles[i];
+                var r = BundleCard(i);
+                IClickableMenu.drawTextureBox(b, Game1.mouseCursors, BoxSrc, r.X, r.Y, r.Width, r.Height, bundle.complete ? new Color(200, 160, 120) : Color.White, 2f, false);
+                if (bundle.complete) Icon(b, Game1.mouseCursors, CheckOn, r.X + 14, r.Y + 15, 4);
+                Text(b, bundle.label, new Vector2(r.X + (bundle.complete ? 58 : 18), r.Y + 20), bundle.complete ? Faint : Ink);
+            }
+            return;
+        }
+
+        var page = note.currentPageBundle;
+        Card(b, 8, 58, 604, 202);
+        Text(b, page.label, new Vector2(22, 64));
+        int filled = note.ingredientSlots.Count(c => c.item != null);
+        RightText(b, $"{filled}/{page.numberOfIngredientSlots} given", 598, 64, Faint);
+        // What it asks for: done ones get a check, like the slots on top.
+        for (int i = 0; i < Math.Min(note.ingredientList.Count, 20); i++)
+        {
+            var it = note.ingredientList[i].item;
+            int x = 22 + i % 10 * 58, y = 96 + i / 10 * 72;
+            bool done = i < page.ingredients.Count && page.ingredients[i].completed;
+            SlotFrame(b, x, y, 54);
+            if (it != null)
+            {
+                Item(b, it, x + 3, y + 3, 48, done ? 0.35f : 1f);
+                Count(b, it.Stack, x + 54, y + 54);
+            }
+            if (done) Icon(b, Game1.mouseCursors, CheckOn, x + 18, y + 18, 2);
+        }
+
+        Card(b, 8, 264, 604, 204);
+        Text(b, "Bag - tap to give", new Vector2(22, 270), Faint);
+        var items = Game1.player.Items;
+        for (int i = 0; i < 36; i++)
+        {
+            var r = StoreBagRect(i);
+            bool locked = i >= Game1.player.MaxItems;
+            b.Draw(Game1.menuTexture, r, new Rectangle(128, 128, 64, 64), locked ? Color.White * 0.35f : Color.White);
+            if (!locked && i < items.Count && items[i] is Item item)
+            {
+                bool usable = note.inventory.highlightMethod?.Invoke(item) ?? true;
+                Item(b, item, r.X + 1, r.Y + 2, 48, usable ? 1f : 0.35f);
+                Count(b, item.Stack, r.Right, r.Bottom);
+            }
+        }
+        Card(b, BundleBack.X, BundleBack.Y, BundleBack.Width, BundleBack.Height);
+        Icon(b, Game1.mouseCursors, ArrowLeft, BundleBack.X + 18, BundleBack.Y + 20, 2.5f);
+        Text(b, "Back", new Vector2(BundleBack.X + 70, BundleBack.Y + 18));
+        if (CurrentStatus is string st) Text(b, st, new Vector2(222, 484), Color.DarkRed);
+    }
+
+    void TapBundle(JunimoNoteMenu note, int x, int y)
+    {
+        if (!JunimoNoteMenu.canClick) return;
+        if (!note.specificBundlePage)
+        {
+            for (int i = 0; i < Math.Min(note.bundles.Count, 10); i++)
+                if (BundleCard(i).Contains(x, y) && !note.bundles[i].complete)
+                    note.receiveLeftClick(note.bundles[i].bounds.Center.X, note.bundles[i].bounds.Center.Y);
+            return;
+        }
+        if (BundleBack.Contains(x, y) && note.backButton != null && note.heldItem == null)
+        {
+            note.receiveLeftClick(note.backButton.bounds.Center.X, note.backButton.bounds.Center.Y);
+            return;
+        }
+        int bag = Enumerable.Range(0, Game1.player.MaxItems).FirstOrDefault(n => StoreBagRect(n).Contains(x, y), -1);
+        if (bag < 0 || note.heldItem != null) return;
+        if (Game1.player.Items[bag] is Item it && !(note.inventory.highlightMethod?.Invoke(it) ?? true)) { Status("This bundle doesn't need that"); return; }
+
+        // Same two clicks as on top: pick the item up, then drop it on the first empty slot that takes it.
+        ClickSlot(note, note.inventory, bag);
+        if (note.heldItem == null) return;
+        var slot = note.ingredientSlots.FirstOrDefault(c => c.item == null && note.currentPageBundle.canAcceptThisItem(note.heldItem, c));
+        if (slot != null) note.receiveLeftClick(slot.bounds.Center.X, slot.bounds.Center.Y);
+        else Status("This bundle doesn't need that");
+        // Whatever wasn't needed goes back into the bag.
+        if (note.heldItem != null && Game1.player.addItemToInventoryBool(note.heldItem)) note.heldItem = null;
     }
 
     // ---------- Bag ----------
