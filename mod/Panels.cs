@@ -2072,6 +2072,7 @@ public class Panels
                 l.Key.Draw(Game1.mapDisplayDevice, aimView, xTile.Dimensions.Location.Origin, false, 4, -1f);
                 w.End();
             }
+            DrawAimLighting(w, loc, old);
         }
         catch (Exception ex)
         {
@@ -2153,6 +2154,26 @@ public class Panels
     }
 
     static int Mod(int a, int m) => (a % m + m) % m;
+
+    /// <summary>Lays the matching patch of the game's last lightmap over the Aim view, with its own blend,
+    /// so night, caves and lamps look the same as on top. The Aim view is always inside the top screen's view.</summary>
+    void DrawAimLighting(SpriteBatch w, GameLocation loc, xTile.Dimensions.Rectangle topView)
+    {
+        if (!Game1.drawLighting || Game1.lightmap == null) return;
+        float zoom = Game1.options.zoomLevel;
+        float scale = Game1.options.lightingQuality / 2f;
+        if (Game1.game1.useUnscaledLighting) scale /= zoom;
+        // World pixel -> top-screen pixel -> lightmap pixel.
+        float k = zoom / scale;
+        var src = new Rectangle((int)((aimView.X - topView.X) * k), (int)((aimView.Y - topView.Y) * k),
+            (int)(aimView.Width * k), (int)(aimView.Height * k));
+        var blend = helper.Reflection.GetField<BlendState>(Game1.game1, "lightingBlend").GetValue();
+        w.Begin(SpriteSortMode.Deferred, blend, SamplerState.LinearClamp, null, null, null, AimScale);
+        w.Draw(Game1.lightmap, new Rectangle(0, 0, aimView.Width, aimView.Height), src, Color.White);
+        if (loc.IsOutdoors && loc.IsRainingHere())
+            w.Draw(Game1.lightingRect, new Rectangle(0, 0, aimView.Width, aimView.Height), Color.OrangeRed * 0.45f);
+        w.End();
+    }
 
     /// <summary>Turns placed furniture to its next rotation that still fits; leaves it alone if none does.</summary>
     static void RotatePlaced(GameLocation loc, StardewValley.Objects.Furniture f)
