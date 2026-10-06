@@ -168,6 +168,7 @@ public class ModEntry : Mod
         var draw = targets[flip] ??= new RenderTarget2D(gd, W, H);
         var read = targets[flip ^ 1] ??= new RenderTarget2D(gd, W, H);
 
+        long allocBefore = GC.GetAllocatedBytesForCurrentThread();
         timer.Restart();
         var oldTargets = gd.GetRenderTargets();
         var oldViewport = gd.Viewport;
@@ -192,21 +193,23 @@ public class ModEntry : Mod
         ui.Post(pushFrame);
 
         drawTicks += drawn; readTicks += readDone - drawn;
+        allocBytes += GC.GetAllocatedBytesForCurrentThread() - allocBefore;
         maxUpdate = Math.Max(maxUpdate, readDone);
         maxDraw = Math.Max(maxDraw, drawn);
         maxRead = Math.Max(maxRead, readDone - drawn);
         renderedThisTick = true;
         if (++frames % 300 == 0)
         {
-            Monitor.Log($"Bottom screen ms/update: draw {drawTicks / frames / 1e4:0.00}, read {readTicks / frames / 1e4:0.00}, worst {maxUpdate / 1e4:0.0} (draw {maxDraw / 1e4:0.0}, read {maxRead / 1e4:0.0}) on {panels.ShowingName}", LogLevel.Trace);
+            Monitor.Log($"Bottom screen ms/update: draw {drawTicks / frames / 1e4:0.00}, read {readTicks / frames / 1e4:0.00}, worst {maxUpdate / 1e4:0.0} (draw {maxDraw / 1e4:0.0}, read {maxRead / 1e4:0.0}) on {panels.ShowingName}; mod allocates {allocBytes / frames / 1024.0:0.0} KB/update", LogLevel.Trace);
             drawTicks = readTicks = frames = 0;
+            allocBytes = 0;
             maxUpdate = maxDraw = maxRead = 0;
         }
     }
 
     // Stutter diagnostics: game frames over 50 ms, and whether the bottom screen or a GC was in them.
     readonly Stopwatch frameClock = Stopwatch.StartNew();
-    long maxUpdate, maxDraw, maxRead;
+    long maxUpdate, maxDraw, maxRead, allocBytes;
     bool renderedThisTick;
     int slowFrames, slowWithRender, slowWithGc, lastGcCount;
 

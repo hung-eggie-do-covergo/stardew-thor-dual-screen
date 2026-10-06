@@ -934,86 +934,124 @@ public class Panels
         if (note.heldItem != null && Game1.player.addItemToInventoryBool(note.heldItem)) note.heldItem = null;
     }
 
-    // ---------- End of day: shipping summary, level up ----------
+    // ---------- End of day: what you shipped, tomorrow, level up ----------
+    // The top screen already shows category totals and the two professions; the bottom adds what it
+    // doesn't: every item shipped at once, tomorrow's outlook, and where each profession leads.
 
-    static Rectangle ShippedRow(int i) => new(8, 58 + i * 66, 604, 62);
-    static readonly Rectangle EndContinue = new(352, 466, 260, 62), EndBack = new(8, 466, 200, 62);
+    static readonly Rectangle EndContinue = new(352, 528, 260, 60);
 
     void DrawShipped(SpriteBatch b, ShippingMenu menu)
     {
-        var totals = helper.Reflection.GetField<List<int>>(menu, "categoryTotals").GetValue();
         var items = helper.Reflection.GetField<List<List<Item>>>(menu, "categoryItems").GetValue();
-        if (menu.currentPage >= 0)
+        var all = items.Take(5).SelectMany(l => l)
+            .Select(it => (item: it, value: Utility.getSellToStorePriceOfItem(it)))
+            .OrderByDescending(x => x.value).ToList();
+
+        Card(b, 8, 58, 604, 346);
+        Text(b, "Shipped today", new Vector2(22, 64), Faint);
+        RightText(b, $"{Utility.getNumberWithCommas(all.Sum(x => x.value))}g", 598, 64, Color.DarkGreen);
+        if (all.Count == 0) Text(b, "Nothing shipped.", new Vector2(22, 100), Faint);
+        const int rows = 8;
+        for (int i = 0; i < Math.Min(all.Count, rows); i++)
         {
-            // A category is open on top: list what was shipped in it.
-            Card(b, 8, 58, 604, 400);
-            Text(b, menu.getCategoryName(menu.currentPage), new Vector2(22, 64));
-            var list = menu.currentPage < items.Count ? items[menu.currentPage] : new List<Item>();
-            for (int i = 0; i < Math.Min(list.Count, 24); i++)
-            {
-                int x = 22 + i % 2 * 296, y = 98 + i / 2 * 30;
-                Item(b, list[i], x, y - 4, 28);
-                Text(b, $"{list[i].DisplayName} x{list[i].Stack}", new Vector2(x + 34, y), Faint);
-            }
-            Card(b, EndBack.X, EndBack.Y, EndBack.Width, EndBack.Height);
-            Icon(b, Game1.mouseCursors, ArrowLeft, EndBack.X + 18, EndBack.Y + 20, 2.5f);
-            Text(b, "Summary", new Vector2(EndBack.X + 70, EndBack.Y + 18));
-            return;
+            var (it, value) = all[i];
+            int y = 96 + i * 36;
+            if (i == rows - 1 && all.Count > rows) { Text(b, $"+{all.Count - rows + 1} more", new Vector2(22, y), Faint); break; }
+            Item(b, it, 22, y - 4, 32);
+            Text(b, it.Stack > 1 ? $"{it.DisplayName} x{it.Stack}" : it.DisplayName, new Vector2(62, y));
+            RightText(b, $"{Utility.getNumberWithCommas(value)}g", 598, y, Ink);
         }
-        // Summary: one row per category with what was shipped, then the day's total.
-        for (int i = 0; i < Math.Min(totals.Count, 6); i++)
-        {
-            var r = ShippedRow(i);
-            bool total = i == totals.Count - 1;
-            Card(b, r.X, r.Y, r.Width, r.Height);
-            Text(b, menu.getCategoryName(i), new Vector2(r.X + 16, r.Y + 18), total ? Ink : Faint);
-            if (!total && i < items.Count)
-                for (int k = 0; k < Math.Min(items[i].Count, 6); k++) Item(b, items[i][k], r.X + 180 + k * 40, r.Y + 13, 36);
-            string g = $"{Utility.getNumberWithCommas(totals[i])}g";
-            RightText(b, g, r.Right - 18, r.Y + 18, total ? Color.DarkGreen : Ink);
-        }
+
+        DrawTomorrow(b, 412);
+
         bool ready = helper.Reflection.GetField<int>(menu, "introTimer").GetValue() <= 0;
         IClickableMenu.drawTextureBox(b, Game1.mouseCursors, BoxSrc, EndContinue.X, EndContinue.Y, EndContinue.Width, EndContinue.Height, ready ? Color.White : new Color(200, 160, 120), 2f, false);
         Text(b, "Continue", new Vector2(EndContinue.X + 80, EndContinue.Y + 18), ready ? Ink : Faint);
     }
 
-    void TapShipped(ShippingMenu menu, int x, int y)
+    /// <summary>Tomorrow at a glance: forecast, birthdays and any festival, for planning while the day ends.</summary>
+    static void DrawTomorrow(SpriteBatch b, int y)
     {
-        if (menu.currentPage >= 0)
-        {
-            if (EndBack.Contains(x, y)) menu.currentPage = -1;
-            return;
-        }
-        if (EndContinue.Contains(x, y)) { menu.receiveLeftClick(menu.okButton.bounds.Center.X, menu.okButton.bounds.Center.Y); return; }
-        for (int i = 0; i < Math.Min(menu.categories.Count, 5); i++)
-            if (ShippedRow(i).Contains(x, y))
-                menu.receiveLeftClick(menu.categories[i].bounds.Center.X, menu.categories[i].bounds.Center.Y);
+        Card(b, 8, y, 604, 108);
+        Text(b, "Tomorrow", new Vector2(22, y + 6), Faint);
+        WeatherIcon(b, TomorrowIcon(Game1.weatherForTomorrow), 22, y + 44, 3);
+        Text(b, Weather(Game1.weatherForTomorrow), new Vector2(66, y + 42));
+        int day = Game1.dayOfMonth + 1;
+        var festivals = DataLoader.Festivals_FestivalDates(Game1.temporaryContent);
+        if (day <= 28 && festivals.TryGetValue($"{Game1.currentSeason}{day}", out var fest))
+            Text(b, fest, new Vector2(22, y + 74), Color.DarkGreen);
+        int x = 330;
+        if (day <= 28)
+            Utility.ForEachVillager(n =>
+            {
+                if (n.CanSocialize && n.Birthday_Season == Game1.currentSeason && n.Birthday_Day == day && x < 560)
+                {
+                    Head(b, n, x, y + 40);
+                    Icon(b, Game1.mouseCursors, Gift, x + 30, y + 52, 2);
+                    x += 70;
+                }
+                return true;
+            });
+        if (x > 330) Text(b, "Birthday", new Vector2(330, y + 6), Faint);
     }
 
-    static readonly Rectangle LeftProfession = new(8, 150, 298, 300), RightProfession = new(314, 150, 298, 300);
+    void TapShipped(ShippingMenu menu, int x, int y)
+    {
+        if (EndContinue.Contains(x, y) && menu.currentPage == -1)
+            menu.receiveLeftClick(menu.okButton.bounds.Center.X, menu.okButton.bounds.Center.Y);
+    }
+
+    static readonly Rectangle LeftProfession = new(8, 140, 298, 448), RightProfession = new(314, 140, 298, 448);
+
+    static Rectangle ProfessionIcon(int p) => new(p % 6 * 16, 624 + p / 6 * 16, 16, 16);
 
     void DrawLevelUp(SpriteBatch b, LevelUpMenu menu)
     {
         string title = helper.Reflection.GetField<string>(menu, "title").GetValue();
-        Card(b, 8, 58, 604, 86);
-        Text(b, title ?? "Level up!", new Vector2(22, 66));
+        var skillIcon = helper.Reflection.GetField<Rectangle>(menu, "sourceRectForLevelIcon").GetValue();
+        Card(b, 8, 58, 604, 76);
+        Icon(b, Game1.buffsIcons, skillIcon, 22, 70, 3);
+        Text(b, title ?? "Level up!", new Vector2(80, 76));
+
         if (!menu.isProfessionChooser)
         {
             var info = helper.Reflection.GetField<List<string>>(menu, "extraInfoForLevel").GetValue();
-            Card(b, 8, 150, 604, 300);
-            float y = 166;
+            Card(b, 8, 140, 604, 380);
+            float y = 156;
             foreach (var line in info) Wrapped(b, line, 22, ref y, 576, Ink, 3);
             Card(b, EndContinue.X, EndContinue.Y, EndContinue.Width, EndContinue.Height);
             Text(b, "Continue", new Vector2(EndContinue.X + 80, EndContinue.Y + 18));
             return;
         }
-        Text(b, "Choose a profession", new Vector2(22, 100), Faint);
-        foreach (var (r, field) in new[] { (LeftProfession, "leftProfessionDescription"), (RightProfession, "rightProfessionDescription") })
+
+        var choices = helper.Reflection.GetField<List<int>>(menu, "professionsToChoose").GetValue();
+        for (int k = 0; k < Math.Min(choices.Count, 2); k++)
         {
-            var desc = helper.Reflection.GetField<List<string>>(menu, field).GetValue();
+            int p = choices[k];
+            var r = k == 0 ? LeftProfession : RightProfession;
             Card(b, r.X, r.Y, r.Width, r.Height);
-            float y = r.Y + 16;
-            for (int i = 0; i < desc.Count; i++) Wrapped(b, desc[i], r.X + 16, ref y, r.Width - 32, i == 0 ? Color.DarkGreen : Ink, 4);
+            Icon(b, Game1.mouseCursors, ProfessionIcon(p), r.X + 14, r.Y + 14, 3);
+            Text(b, LevelUpMenu.getProfessionTitleFromNumber(p), new Vector2(r.X + 70, r.Y + 24), Color.DarkGreen);
+            float y = r.Y + 70;
+            foreach (var line in LevelUpMenu.getProfessionDescription(p).Skip(1)) Wrapped(b, line, r.X + 14, ref y, r.Width - 28, Ink, 3);
+
+            // Level-5 picks decide which pair you choose from at 10; show them, the wiki question.
+            if (p % 6 < 2)
+            {
+                y = Math.Max(y + 8, r.Y + 200);
+                b.Draw(Game1.staminaRect, new Rectangle(r.X + 14, (int)y, r.Width - 28, 2), Faint * 0.5f);
+                Text(b, "Leads to at level 10", new Vector2(r.X + 14, y + 8), Faint);
+                y += 40;
+                for (int c = 0; c < 2; c++)
+                {
+                    int child = p - p % 6 + 2 + 2 * (p % 6) + c;
+                    Icon(b, Game1.mouseCursors, ProfessionIcon(child), r.X + 14, (int)y, 2);
+                    Text(b, LevelUpMenu.getProfessionTitleFromNumber(child), new Vector2(r.X + 52, y + 2));
+                    float dy = y + 30;
+                    Wrapped(b, string.Join(" ", LevelUpMenu.getProfessionDescription(child).Skip(1)), r.X + 52, ref dy, r.Width - 66, Faint, 2);
+                    y = dy + 6;
+                }
+            }
         }
     }
 
