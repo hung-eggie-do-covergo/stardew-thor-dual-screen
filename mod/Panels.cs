@@ -68,7 +68,7 @@ public class Panels
     List<NPC> lovedBy = new(), likedBy = new();
     List<string> bundles = new();
 
-    public int RedrawInterval => Showing switch { Tab.Aim => 2, Tab.Bag => dragging ? 2 : 15, Tab.Craft or Tab.Shop or Tab.People => listTouch ? 2 : 30, _ => 30 };
+    public int RedrawInterval => TitleAnimating ? 2 : Showing switch { Tab.Aim => 2, Tab.Bag => dragging ? 2 : 15, Tab.Craft or Tab.Shop or Tab.People => listTouch ? 2 : 30, _ => 30 };
 
     /// <summary>Menu whose inventory the Bag panel drives, e.g. a chest or a shop.</summary>
     static InventoryMenu OpenInventory => Game1.activeClickableMenu switch
@@ -1641,7 +1641,10 @@ public class Panels
             longPressed = LongPress(pressAt.X, pressAt.Y - ContentShift);
         }
         if (!Context.IsWorldReady && Game1.activeClickableMenu is TitleMenu tm)
+        {
             foreach (var button in tm.buttons.Take(4)) button.visible = false;
+            TickTitleButtons(tm);
+        }
         // The geode menu only holds the find while the crack animates; keep it for the panel.
         if (Game1.activeClickableMenu is GeodeMenu { geodeTreasure: Item found }) lastGeodeFind = found;
     }
@@ -1674,10 +1677,17 @@ public class Panels
         switch (TitleMenu.subMenu)
         {
             case null:
-                // Mirror the top screen: nothing during the intro, then buttons as the game reveals them.
-                if (!TitleReady(tm)) { Text(b, "Tap to skip", new Vector2(ModEntry.W / 2 - 50, ModEntry.H - 60), Color.White * 0.8f); break; }
-                for (int i = 0; i < Math.Min(Math.Min(tm.buttons.Count, 4), tm.buttonsToShow); i++)
-                    b.Draw(tm.titleButtonsTexture, TitleButton(i), tm.buttons[i].sourceRect, Color.White);
+                if (!TitleReady(tm)) { DrawSkipHint(b); break; }
+                for (int i = 0; i < Math.Min(Math.Min(tm.buttons.Count, 4), titleShown); i++)
+                {
+                    // Pop in: start a quarter bigger and settle over 12 ticks.
+                    float t = Math.Clamp((Game1.ticks - titleShownAt[i]) / 12f, 0f, 1f);
+                    var r = TitleButton(i);
+                    float scale = 1f + 0.25f * (1f - t) * (1f - t);
+                    var c = r.Center.ToVector2();
+                    b.Draw(tm.titleButtonsTexture, c, tm.buttons[i].sourceRect, Color.White, 0f,
+                        new Vector2(tm.buttons[i].sourceRect.Width / 2f, tm.buttons[i].sourceRect.Height / 2f), 3f * scale, SpriteEffects.None, 0);
+                }
                 break;
 
             case LoadGameMenu lm when lm.IsDoingTask():
@@ -1740,14 +1750,14 @@ public class Panels
     }
 
     /// <summary>Taps click the matching control in the real title menu, so the game does the work.</summary>
-    static void TapTitle(TitleMenu tm, int x, int y)
+    void TapTitle(TitleMenu tm, int x, int y)
     {
         switch (TitleMenu.subMenu)
         {
             case null:
                 // During the intro any tap skips it, like clicking the top screen.
                 if (!TitleReady(tm)) { tm.receiveLeftClick(Game1.uiViewport.Width / 2, Game1.uiViewport.Height / 2); return; }
-                for (int i = 0; i < Math.Min(Math.Min(tm.buttons.Count, 4), tm.buttonsToShow); i++)
+                for (int i = 0; i < Math.Min(Math.Min(tm.buttons.Count, 4), titleShown); i++)
                     if (TitleButton(i).Contains(x, y))
                     {
                         // The top-screen copy is hidden, and hidden buttons ignore clicks; show it just for this one.
@@ -1770,6 +1780,38 @@ public class Panels
                 ClickBack(tm);
                 break;
         }
+    }
+
+    bool TitleAnimating => !Context.IsWorldReady && Game1.activeClickableMenu is TitleMenu tm && TitleMenu.subMenu == null
+        && (!TitleReady(tm) || titleShown < 4 || Game1.ticks - titleShownAt[3] < 12);
+
+    // Bottom-screen title buttons revealed so far, and the tick each appeared (for the pop-in).
+    int titleShown;
+    readonly int[] titleShownAt = new int[4];
+
+    /// <summary>Reveals bottom title buttons one every 12 ticks once the title is ready. Follows the game's own
+    /// count while it sequences (it plays the sound); plays the sound itself if the game skipped straight to all four.</summary>
+    void TickTitleButtons(TitleMenu tm)
+    {
+        if (TitleMenu.subMenu != null || !TitleReady(tm)) { if (!TitleReady(tm)) titleShown = 0; return; }
+        if (titleShown >= 4 || (titleShown > 0 && Game1.ticks - titleShownAt[titleShown - 1] < 12)) return;
+        bool gameSequencing = tm.buttonsToShow < 4;
+        if (gameSequencing && titleShown >= tm.buttonsToShow) return;
+        titleShownAt[titleShown++] = Game1.ticks;
+        if (!gameSequencing) Game1.playSound("Cowboy_gunshot");
+    }
+
+    /// <summary>"Tap to skip" on a card in the middle, bobbing and pulsing gently.</summary>
+    static void DrawSkipHint(SpriteBatch b)
+    {
+        const string text = "Tap to skip";
+        var size = Game1.smallFont.MeasureString(text);
+        int w = (int)size.X + 48, h = 56;
+        int bob = (int)Math.Round(Math.Sin(Game1.ticks / 12.0) * 4);
+        int x = (ModEntry.W - w) / 2, y = ModEntry.H / 2 - h / 2 + bob;
+        Card(b, x, y, w, h);
+        float pulse = 0.75f + 0.25f * (float)Math.Sin(Game1.ticks / 8.0);
+        Text(b, text, new Vector2(x + 24, y + (h - size.Y) / 2 + 2), Ink * pulse);
     }
 
     /// <summary>The title is done animating in and takes clicks, the same checks the game uses.</summary>
