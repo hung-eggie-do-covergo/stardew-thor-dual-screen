@@ -1988,7 +1988,7 @@ public class Panels
         switch (TitleMenu.subMenu)
         {
             case null:
-                if (!TitleReady(tm)) { DrawSkipHint(b); break; }
+                if (!TitleReady(tm)) { if (CanSkipIntro(tm)) DrawSkipHint(b); break; }
                 for (int i = 0; i < Math.Min(Math.Min(tm.buttons.Count, 4), titleShown); i++)
                 {
                     // Pop in: start a quarter bigger and settle over 12 ticks.
@@ -2067,7 +2067,13 @@ public class Panels
         {
             case null:
                 // During the intro any tap skips it, like clicking the top screen.
-                if (!TitleReady(tm)) { tm.receiveLeftClick(Game1.uiViewport.Width / 2, Game1.uiViewport.Height / 2); return; }
+                if (!TitleReady(tm))
+                {
+                    // During the logo only the game's own skip button skips; during the rise any click does.
+                    if (tm.logoFadeTimer > 0 && tm.skipButton != null) tm.receiveLeftClick(tm.skipButton.bounds.Center.X, tm.skipButton.bounds.Center.Y);
+                    else if (CanSkipIntro(tm)) tm.receiveLeftClick(Game1.uiViewport.Width / 2, Game1.uiViewport.Height / 2);
+                    return;
+                }
                 for (int i = 0; i < Math.Min(Math.Min(tm.buttons.Count, 4), titleShown); i++)
                     if (TitleButton(i).Contains(x, y))
                     {
@@ -2124,6 +2130,12 @@ public class Panels
         float pulse = 0.75f + 0.25f * (float)Math.Sin(Game1.ticks / 8.0);
         Text(b, text, new Vector2(x + 24, y + (h - size.Y) / 2 + 2), Ink * pulse);
     }
+
+    /// <summary>The two moments the game lets you skip: its logo (via the skip button) and the camera rise.
+    /// Fading from white and the logo swipe ignore clicks, so no hint then.</summary>
+    static bool CanSkipIntro(TitleMenu tm) =>
+        (tm.logoFadeTimer > 0 && tm.skipButton != null)
+        || (tm.logoFadeTimer <= 0 && tm.fadeFromWhiteTimer <= 0 && !tm.titleInPosition && tm.logoSwipeTimer == 0f);
 
     /// <summary>The title is done animating in and takes clicks, the same checks the game uses.</summary>
     static bool TitleReady(TitleMenu tm) => tm.titleInPosition && tm.logoFadeTimer <= 0 && tm.fadeFromWhiteTimer <= 0;
