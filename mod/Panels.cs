@@ -16,9 +16,9 @@ namespace DualScreen;
 public class Panels
 {
     // Choices and Shop aren't in the strip: they take over while that kind of menu is open on top.
-    enum Tab { Today, Gifts, Bag, Craft, Aim, Tabs, Choices, Shop }
+    enum Tab { Today, Gifts, People, Bag, Craft, Aim, Tabs, Choices, Shop }
 
-    static readonly Tab[] Movable = { Tab.Today, Tab.Gifts, Tab.Bag, Tab.Craft, Tab.Aim };
+    static readonly Tab[] Movable = { Tab.Today, Tab.Gifts, Tab.People, Tab.Bag, Tab.Craft, Tab.Aim };
     // Tabs keep a fixed size (about 24x10 mm on the Thor) and the strip scrolls sideways when they don't fit.
     const int TabH = 64, TabW = 140, TabGap = 4, Slot = 48, Cols = 12;
     // Content cards are laid out from y=58; shift them down to sit under the header.
@@ -56,6 +56,9 @@ public class Panels
 
     void Open(Tab t)
     {
+        // A villager picked on People shows on Gifts only until you switch away.
+        if (t != Tab.Gifts) giftsFocus = null;
+        gridScroll = 0;
         tab = t;
         config.LastTab = t.ToString();
         helper.WriteConfig(config);
@@ -66,7 +69,7 @@ public class Panels
     List<NPC> lovedBy = new(), likedBy = new();
     List<string> bundles = new();
 
-    public int RedrawInterval => Showing switch { Tab.Aim => 2, Tab.Bag => dragging ? 2 : 15, Tab.Craft or Tab.Shop => listTouch ? 2 : 30, _ => 30 };
+    public int RedrawInterval => Showing switch { Tab.Aim => 2, Tab.Bag => dragging ? 2 : 15, Tab.Craft or Tab.Shop or Tab.People => listTouch ? 2 : 30, _ => 30 };
 
     /// <summary>Menu whose inventory the Bag panel drives, e.g. a chest or a shop.</summary>
     static InventoryMenu OpenInventory => Game1.activeClickableMenu switch
@@ -113,7 +116,7 @@ public class Panels
                 scrollingTabs |= Math.Abs(x - scrollStartX) > 12;
                 if (scrollingTabs) tabScroll = Math.Clamp(scrollStartValue - (x - scrollStartX), 0, MaxTabScroll);
                 break;
-            case Android.Views.MotionEventActions.Down when Showing is Tab.Craft or Tab.Shop && GridView.Contains(x, y - ContentShift):
+            case Android.Views.MotionEventActions.Down when Showing is Tab.Craft or Tab.Shop or Tab.People && ListView.Contains(x, y - ContentShift):
                 listStartY = y; listStartValue = gridScroll;
                 listTouch = true; scrollingList = headerTouch = scrollingTabs = false;
                 break;
@@ -158,6 +161,7 @@ public class Panels
         }
         if (Showing == Tab.Bag) TapBag(x, y - ContentShift);
         else if (Showing == Tab.Craft) TapCraft(x, y - ContentShift);
+        else if (Showing == Tab.People) TapPeople(x, y - ContentShift);
         else if (Showing == Tab.Tabs) TapTabSettings(x, y - ContentShift);
         else if (Showing == Tab.Choices) TapChoices(x, y - ContentShift);
         else if (Showing == Tab.Shop) TapShop(x, y - ContentShift);
@@ -181,6 +185,7 @@ public class Panels
             b.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp, null, null, null, Matrix.CreateTranslation(0, ContentShift, 0));
             if (shown == Tab.Today) DrawToday(b);
             else if (shown == Tab.Gifts) DrawNearby(b);
+            else if (shown == Tab.People) DrawPeople(b);
             else if (shown == Tab.Craft) DrawCraft(b);
             else if (shown == Tab.Tabs) DrawTabSettings(b);
             else if (shown == Tab.Choices) DrawChoices(b);
@@ -250,6 +255,8 @@ public class Panels
             case Tab.Aim: Item(b, hoe ??= ItemRegistry.Create("(T)Hoe"), x - 4, y - 4, 44); break;
             // The game menu's options tab sprite.
             case Tab.Tabs: Icon(b, Game1.mouseCursors, new Rectangle(96, 368, 16, 16), x - 2, y - 2, 2.5f); break;
+            // The game menu's social tab sprite.
+            case Tab.People: Icon(b, Game1.mouseCursors, new Rectangle(32, 368, 16, 16), x - 2, y - 2, 2.5f); break;
         }
     }
 
@@ -500,7 +507,7 @@ public class Panels
 
         // Right card: the nearest villager.
         Card(b, 316, 58, 296, 474 - ContentShift);
-        var npc = NearestVillager(8);
+        var npc = giftsFocus ?? NearestVillager(8);
         if (npc == null) { Text(b, "Nobody nearby.", new Vector2(330, 70), Faint); return; }
 
         Portrait(b, npc, 330, 70);
@@ -622,6 +629,68 @@ public class Panels
             }
         }
         return names;
+    }
+
+    // ---------- People ----------
+
+    const int PeopleRowH = 72, PeopleColW = 294;
+    static readonly Rectangle PeopleView = new(14, 66, 2 * PeopleColW, 454);
+    NPC giftsFocus;
+
+    /// <summary>Villagers where you are first, then by place, then by name.</summary>
+    static List<NPC> People()
+    {
+        var list = new List<NPC>();
+        Utility.ForEachVillager(n => { if (n.CanSocialize && n.currentLocation != null) list.Add(n); return true; });
+        var here = Game1.currentLocation;
+        return list.OrderBy(n => n.currentLocation == here ? 0 : 1)
+            .ThenBy(n => n.currentLocation.DisplayName)
+            .ThenBy(n => n.displayName)
+            .ToList();
+    }
+
+    /// <summary>Location name for people; rooms with only an internal name ("HarveyRoom") get spaces.</summary>
+    static string PlaceName(GameLocation loc) =>
+        System.Text.RegularExpressions.Regex.Replace(loc.DisplayName, "(?<=[a-z])(?=[A-Z])", " ");
+
+    Rectangle PersonRect(int i) =>
+        new(PeopleView.X + i % 2 * PeopleColW, PeopleView.Y + i / 2 * PeopleRowH - gridScroll, PeopleColW - 6, PeopleRowH - 6);
+
+    void DrawPeople(SpriteBatch b)
+    {
+        Card(b, 8, 58, 604, 470);
+        var people = People();
+        DrawScrolled(b, PeopleView, () =>
+        {
+            for (int i = 0; i < people.Count; i++)
+            {
+                var r = PersonRect(i);
+                if (r.Bottom < PeopleView.Y || r.Y > PeopleView.Bottom) continue;
+                var npc = people[i];
+                bool here = npc.currentLocation == Game1.currentLocation;
+                Card(b, r.X, r.Y, r.Width, r.Height);
+                Head(b, npc, r.X + 12, r.Y + 17);
+                Text(b, npc.displayName, new Vector2(r.X + 54, r.Y + 8));
+                string place = PlaceName(npc.currentLocation);
+                while (place.Length > 3 && Game1.smallFont.MeasureString(place).X > r.Width - 96) place = place[..^2].TrimEnd() + ".";
+                // Green when they're in the same place as you.
+                Text(b, place, new Vector2(r.X + 54, r.Y + 34), here ? Color.DarkGreen : Faint);
+                if (npc.isBirthday()) Icon(b, Game1.mouseCursors, Gift, r.Right - 40, r.Y + 19, 2);
+            }
+        });
+    }
+
+    void TapPeople(int x, int y)
+    {
+        if (!PeopleView.Contains(x, y)) return;
+        var people = People();
+        for (int i = 0; i < people.Count; i++)
+        {
+            if (!PersonRect(i).Contains(x, y)) continue;
+            Open(Tab.Gifts);
+            giftsFocus = people[i];
+            return;
+        }
     }
 
     // ---------- Bag ----------
@@ -915,7 +984,12 @@ public class Panels
 
     int GridCount => Showing == Tab.Shop && Game1.activeClickableMenu is ShopMenu shop ? shop.forSale.Count : recipes.Count;
 
-    int MaxGridScroll => Math.Max(0, (GridCount + RecipeCols - 1) / RecipeCols * RecipeStep - GridView.Height);
+    int MaxGridScroll => Showing == Tab.People
+        ? Math.Max(0, (People().Count + 1) / 2 * PeopleRowH - PeopleView.Height)
+        : Math.Max(0, (GridCount + RecipeCols - 1) / RecipeCols * RecipeStep - GridView.Height);
+
+    /// <summary>The scrolling window of whichever list is showing.</summary>
+    Rectangle ListView => Showing == Tab.People ? PeopleView : GridView;
 
     /// <summary>Known crafting recipes in the game's own order, rebuilt only when you learn one.</summary>
     void RefreshRecipes()
@@ -973,36 +1047,43 @@ public class Panels
     /// <summary>Scrolling 10-wide grid of slots clipped to GridView, with fade-and-arrow cues.</summary>
     void DrawGrid(SpriteBatch b, int count, Action<int, Rectangle> cell)
     {
-        // Clip the grid to its window so part-scrolled rows don't spill over the cards.
+        int rows = Math.Max(3, (count + RecipeCols - 1) / RecipeCols);
+        DrawScrolled(b, GridView, () =>
+        {
+            for (int n = 0; n < rows * RecipeCols; n++)
+            {
+                var r = GridRect(n);
+                if (r.Bottom < GridView.Y || r.Y > GridView.Bottom) continue;
+                SlotFrame(b, r.X, r.Y, RecipeSize);
+                if (n < count) cell(n, r);
+            }
+        });
+    }
+
+    /// <summary>Draws a list clipped to its window, then fade-and-arrow cues on edges with more past them.</summary>
+    void DrawScrolled(SpriteBatch b, Rectangle view, Action draw)
+    {
+        // Clip so part-scrolled rows don't spill over the cards.
         var gd = b.GraphicsDevice;
         b.End();
         var oldScissor = gd.ScissorRectangle;
-        gd.ScissorRectangle = new Rectangle(GridView.X, GridView.Y + ContentShift, GridView.Width, GridView.Height);
+        gd.ScissorRectangle = new Rectangle(view.X, view.Y + ContentShift, view.Width, view.Height);
         b.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp, null, Clip, null, Matrix.CreateTranslation(0, ContentShift, 0));
-        int rows = Math.Max(3, (count + RecipeCols - 1) / RecipeCols);
-        for (int n = 0; n < rows * RecipeCols; n++)
-        {
-            var r = GridRect(n);
-            if (r.Bottom < GridView.Y || r.Y > GridView.Bottom) continue;
-            SlotFrame(b, r.X, r.Y, RecipeSize);
-            if (n < count) cell(n, r);
-        }
+        draw();
         b.End();
         gd.ScissorRectangle = oldScissor;
         b.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp, null, null, null, Matrix.CreateTranslation(0, ContentShift, 0));
 
-        // Same cue as the tab strip: fade plus arrow on edges with more recipes past them.
         for (int side = 0; side < 2; side++)
         {
             if (side == 0 ? gridScroll <= 0 : gridScroll >= MaxGridScroll) continue;
             for (int f = 0; f < 20; f++)
             {
-                int fy = side == 0 ? GridView.Y + f : GridView.Bottom - 1 - f;
-                b.Draw(Game1.staminaRect, new Rectangle(GridView.X, fy, GridView.Width, 1), Paper * (1f - f / 20f));
+                int fy = side == 0 ? view.Y + f : view.Bottom - 1 - f;
+                b.Draw(Game1.staminaRect, new Rectangle(view.X, fy, view.Width, 1), Paper * (1f - f / 20f));
             }
-            Icon(b, Game1.mouseCursors, side == 0 ? ArrowUp : ArrowDown, ModEntry.W / 2 - 11, side == 0 ? GridView.Y - 2 : GridView.Bottom - 22, 2);
+            Icon(b, Game1.mouseCursors, side == 0 ? ArrowUp : ArrowDown, ModEntry.W / 2 - 11, side == 0 ? view.Y - 2 : view.Bottom - 22, 2);
         }
-
     }
 
     static readonly RasterizerState Clip = new() { ScissorTestEnable = true, CullMode = CullMode.None };

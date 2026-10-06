@@ -161,7 +161,7 @@ public class ModEntry : Mod
 /// <summary>Saved to config.json: tab order, hidden tabs and the tab last open.</summary>
 public class ModConfig
 {
-    public List<string> TabOrder { get; set; } = new() { "Today", "Gifts", "Bag", "Craft", "Aim" };
+    public List<string> TabOrder { get; set; } = new() { "Today", "Gifts", "People", "Bag", "Craft", "Aim" };
     public List<string> HiddenTabs { get; set; } = new();
     public string LastTab { get; set; } = "Today";
 }

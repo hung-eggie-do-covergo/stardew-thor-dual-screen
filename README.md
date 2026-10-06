@@ -44,9 +44,9 @@ So this one is, and always will be:
 | **Aim** | **Chest** | **Shop** | **Shipping bin** |
 | <a href="docs/screenshots/aim.png"><img src="docs/screenshots/aim.png" alt="Aim"></a> | <a href="docs/screenshots/chest.png"><img src="docs/screenshots/chest.png" alt="Chest"></a> | <a href="docs/screenshots/shop.png"><img src="docs/screenshots/shop.png" alt="Shop"></a> | <a href="docs/screenshots/shipping.png"><img src="docs/screenshots/shipping.png" alt="Shipping bin"></a> |
 | Tap a tile to place or use a tool | Tap to take or store | Buy 1/5/25, sell any amount | Pick an amount to ship |
-| **Clint's geodes** | **Title screen** | **Load** | **Tabs** |
-| <a href="docs/screenshots/geodes.png"><img src="docs/screenshots/geodes.png" alt="Clint's geodes"></a> | <a href="docs/screenshots/title.png"><img src="docs/screenshots/title.png" alt="Title screen"></a> | <a href="docs/screenshots/load.png"><img src="docs/screenshots/load.png" alt="Load"></a> | <a href="docs/screenshots/tabs.png"><img src="docs/screenshots/tabs.png" alt="Tabs"></a> |
-| Tap a geode to crack it | Buttons on the bottom | Your saves as big cards | Hide and reorder tabs |
+| **Clint's geodes** | **Title screen** | **People** | **Tabs** |
+| <a href="docs/screenshots/geodes.png"><img src="docs/screenshots/geodes.png" alt="Clint's geodes"></a> | <a href="docs/screenshots/title.png"><img src="docs/screenshots/title.png" alt="Title screen"></a> | <a href="docs/screenshots/people.png"><img src="docs/screenshots/people.png" alt="People"></a> | <a href="docs/screenshots/tabs.png"><img src="docs/screenshots/tabs.png" alt="Tabs"></a> |
+| Tap a geode to crack it | Buttons on the bottom | Where everyone is right now | Hide and reorder tabs |
 
 Every menu goes through the game's own code, so prices, rules and sounds are exactly the game's.
 **[Read the full feature guide →](docs/FEATURES.md)**
@@ -55,8 +55,8 @@ Every menu goes through the game's own code, so prices, rules and sounds are exa
 
 - **No duplicates.** No minimap that just repeats the top screen, no second copy of the clock or
   money.
-- **No cheats.** It shows what the game would tell you anyway (the TV, the calendar, a villager's
-  reaction), not hidden numbers.
+- **Nothing that changes the game.** No free items, money or skips. It only saves you a trip to the
+  wiki or a walk around town: gift tastes, where people are, what a recipe needs.
 - **No keep-awake.** The panel hides when the Thor sleeps and never holds the screen on.
 - **Your controller stays in charge.** The bottom window never takes button focus, and touching it
   doesn't switch the game into mouse mode.

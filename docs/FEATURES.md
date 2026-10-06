@@ -21,6 +21,13 @@ their hearts, this week's gifts and what they love. No more wiki tab open beside
 
 ![Gifts tab next to Pierre](screenshots/gifts.png)
 
+## People
+
+Where every villager is right now: whoever is in your area first (in green), then by place. A gift
+box marks today's birthday. Tap someone to open Gifts on them, wherever they are.
+
+![People tab](screenshots/people.png)
+
 ## Bag
 
 Touch inventory. Tap to hold, drag to rearrange, drag onto the trash can (with your trash-can
