@@ -97,8 +97,7 @@ public class Panels
         {
             case Tab.Today:
                 h.Add(Game1.dayOfMonth); h.Add(Game1.weatherIcon); h.Add(Game1.player.DailyLuck);
-                RecountCrops();
-                h.Add(crops.ready); h.Add(crops.dry);
+                h.Add(Crops.Ready); h.Add(Crops.Dry);
                 break;
             case Tab.Gifts when Game1.ticks % 30 == 0 || giftsKeyNpc != null:
                 if ((giftsKeyNpc = Game1.ticks % 30 == 0 ? NearestVillager(8) : giftsKeyNpc) is NPC n)
@@ -460,8 +459,8 @@ public class Panels
         Text(b, Weather(Game1.weatherForTomorrow), new Vector2(270, 94));
 
         Card(b, 416, 58, 196, 76);
-        RecountCrops();
-        var (ready, readyItem, dry) = crops;
+        int ready = Crops.Ready, dry = Crops.Dry;
+        var readyItem = Crops.ReadyItem;
         Item(b, readyItem ?? (parsnip ??= ItemRegistry.Create("(O)24")), 428, 68, 32, readyItem == null ? 0.35f : 1f);
         Text(b, ready > 0 ? $"{ready} ready" : "None ready", new Vector2(466, 68), ready > 0 ? Color.DarkGreen : Faint);
         Item(b, waterCan ??= ItemRegistry.Create("(T)WateringCan"), 428, 98, 32);
@@ -534,79 +533,23 @@ public class Panels
         _ => 2,
     };
 
-    // Crop counts change when the day starts, a tool swing lands (water, hoe, scythe) or the bag changes
-    // (planting, picking), so they're recounted then instead of on every redraw.
-    (int ready, Item readyItem, int dry) crops;
-    bool cropsDirty = true, wasUsingTool;
-
-    public void MarkCropsDirty() => cropsDirty = true;
-    int cropsTick = -999;
-    Tab? lastShowing;
-
-    /// <summary>At most once a second: a late-game harvest dirties this on every pickup, and a big farm is
-    /// thousands of tiles to walk.</summary>
-    void RecountCrops()
-    {
-        // No world-change subscriptions (those keep SMAPI watching every location even with Today closed):
-        // recount on open, on our own triggers, and every 5 s while Today stays open.
-        if (Game1.ticks - cropsTick >= 300) cropsDirty = true;
-        if (!cropsDirty || Game1.ticks - cropsTick < 60) return;
-        cropsTick = Game1.ticks;
-        cropsDirty = false;
-        long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
-        crops = Crops();
-        if (diagnostics)
-        {
-            // Second, warm run: the first includes one-off JIT and lookup costs.
-            long t1 = System.Diagnostics.Stopwatch.GetTimestamp();
-            Crops();
-            double f = 1000.0 / System.Diagnostics.Stopwatch.Frequency;
-            monitor.Log($"Crop recount: {(t1 - t0) * f:0.00} ms first, {(System.Diagnostics.Stopwatch.GetTimestamp() - t1) * f:0.000} ms warm, over {cropTiles} tiles", LogLevel.Trace);
-        }
-    }
-
+    // Crop counts are kept incrementally by CropTracker (full walk only at day start).
+    public readonly CropTracker Crops = new();
+    bool wasUsingTool;
     public bool diagnostics;
-    static int cropTiles;
 
-    static readonly string[] CropLocationNames = { "Greenhouse", "IslandWest" };
-
-    /// <summary>The farm, the greenhouse and Ginger Island's farm (if unlocked).</summary>
-    static IEnumerable<GameLocation> CropLocations
+    /// <summary>The bag changed: something picked (ready tiles) or planted (tiles around you).</summary>
+    public void OnInventoryChanged(IEnumerable<Item> removed, IEnumerable<StardewModdingAPI.Events.ItemStackSizeChange> sizes)
     {
-        get
-        {
-            yield return Game1.getFarm();
-            foreach (var name in CropLocationNames) yield return Game1.getLocationFromName(name);
-        }
-    }
-
-    static (int ready, Item readyItem, int dry) Crops()
-    {
-        int ready = 0, dry = 0;
-        var harvests = new Dictionary<string, int>();
-        cropTiles = 0;
-        foreach (var loc in CropLocations)
-        {
-            if (loc == null) continue;
-            bool rain = loc.IsOutdoors && loc.IsRainingHere();
-            var dirts = loc.terrainFeatures.Values.OfType<HoeDirt>()
-                .Concat(loc.objects.Values.OfType<StardewValley.Objects.IndoorPot>().Select(p => p.hoeDirt.Value));
-            foreach (var d in dirts)
-            {
-                cropTiles++;
-                if (d?.crop == null || d.crop.dead.Value) continue;
-                if (d.readyForHarvest())
-                {
-                    ready++;
-                    string id = d.crop.indexOfHarvest.Value;
-                    if (id != null) harvests[id] = harvests.GetValueOrDefault(id) + 1;
-                }
-                else if (!rain && d.needsWatering() && !d.isWatered()) dry++;
-            }
-        }
-        // Show the crop you have most of.
-        var top = harvests.OrderByDescending(h => h.Value).Select(h => h.Key).FirstOrDefault();
-        return (ready, top == null ? null : ItemRegistry.Create(top, allowNull: true), dry);
+        if (!Context.IsWorldReady) return;
+        Crops.Recheck();
+        bool planted = removed.Any(i => i.Category == SObject.SeedsCategory)
+            || sizes.Any(c => c.Item.Category == SObject.SeedsCategory && c.NewSize < c.OldSize);
+        if (!planted) return;
+        var me = Game1.player.Tile;
+        var near = new List<Vector2> { Game1.currentCursorTile, Game1.player.GetToolLocation() / 64f };
+        for (int dx = -1; dx <= 1; dx++) for (int dy = -1; dy <= 1; dy++) near.Add(me + new Vector2(dx, dy));
+        Crops.CheckAround(Game1.currentLocation, near.Select(v => new Vector2((int)v.X, (int)v.Y)));
     }
 
     IEnumerable<(Action<SpriteBatch, int, int> icon, string line)> Events()
@@ -2109,14 +2052,11 @@ public class Panels
 
     public void Tick()
     {
-        // Today was just opened: its crop counts may be stale.
-        var showing = Showing;
-        if (showing == Tab.Today && lastShowing != Tab.Today) cropsDirty = true;
-        lastShowing = showing;
         if (Context.IsWorldReady)
         {
+            // A swing just finished (watering can, scythe, hoe): re-check only the dry and ready tiles.
             bool using_ = Game1.player.UsingTool;
-            if (wasUsingTool && !using_) cropsDirty = true;
+            if (wasUsingTool && !using_) Crops.Recheck();
             wasUsingTool = using_;
         }
         if (pressDown && Game1.ticks - pressTick >= LongPressTicks)
