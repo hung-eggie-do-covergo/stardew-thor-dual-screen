@@ -97,7 +97,7 @@ public class Panels
         {
             case Tab.Today:
                 h.Add(Game1.dayOfMonth); h.Add(Game1.weatherIcon); h.Add(Game1.player.DailyLuck);
-                if (cropsDirty) { crops = Crops(); cropsDirty = false; }
+                RecountCrops();
                 h.Add(crops.ready); h.Add(crops.dry);
                 break;
             case Tab.Gifts when Game1.ticks % 30 == 0 || giftsKeyNpc != null:
@@ -460,7 +460,7 @@ public class Panels
         Text(b, Weather(Game1.weatherForTomorrow), new Vector2(270, 94));
 
         Card(b, 416, 58, 196, 76);
-        if (cropsDirty) { crops = Crops(); cropsDirty = false; }
+        RecountCrops();
         var (ready, readyItem, dry) = crops;
         Item(b, readyItem ?? (parsnip ??= ItemRegistry.Create("(O)24")), 428, 68, 32, readyItem == null ? 0.35f : 1f);
         Text(b, ready > 0 ? $"{ready} ready" : "None ready", new Vector2(466, 68), ready > 0 ? Color.DarkGreen : Faint);
@@ -540,12 +540,48 @@ public class Panels
     bool cropsDirty = true, wasUsingTool;
 
     public void MarkCropsDirty() => cropsDirty = true;
+    int cropsTick = -999;
+
+    /// <summary>At most once a second: a late-game harvest dirties this on every pickup, and a big farm is
+    /// thousands of tiles to walk.</summary>
+    void RecountCrops()
+    {
+        if (!cropsDirty || Game1.ticks - cropsTick < 60) return;
+        cropsTick = Game1.ticks;
+        cropsDirty = false;
+        long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+        crops = Crops();
+        if (diagnostics)
+        {
+            // Second, warm run: the first includes one-off JIT and lookup costs.
+            long t1 = System.Diagnostics.Stopwatch.GetTimestamp();
+            Crops();
+            double f = 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+            monitor.Log($"Crop recount: {(t1 - t0) * f:0.00} ms first, {(System.Diagnostics.Stopwatch.GetTimestamp() - t1) * f:0.000} ms warm, over {cropTiles} tiles", LogLevel.Trace);
+        }
+    }
+
+    public bool diagnostics;
+    static int cropTiles;
+
+    static readonly string[] CropLocationNames = { "Greenhouse", "IslandWest" };
+
+    /// <summary>The farm, the greenhouse and Ginger Island's farm (if unlocked).</summary>
+    static IEnumerable<GameLocation> CropLocations
+    {
+        get
+        {
+            yield return Game1.getFarm();
+            foreach (var name in CropLocationNames) yield return Game1.getLocationFromName(name);
+        }
+    }
 
     static (int ready, Item readyItem, int dry) Crops()
     {
         int ready = 0, dry = 0;
         var harvests = new Dictionary<string, int>();
-        foreach (var loc in new[] { Game1.getFarm(), Game1.getLocationFromName("Greenhouse") })
+        cropTiles = 0;
+        foreach (var loc in CropLocations)
         {
             if (loc == null) continue;
             bool rain = loc.IsOutdoors && loc.IsRainingHere();
@@ -553,6 +589,7 @@ public class Panels
                 .Concat(loc.objects.Values.OfType<StardewValley.Objects.IndoorPot>().Select(p => p.hoeDirt.Value));
             foreach (var d in dirts)
             {
+                cropTiles++;
                 if (d?.crop == null || d.crop.dead.Value) continue;
                 if (d.readyForHarvest())
                 {

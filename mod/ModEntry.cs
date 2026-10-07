@@ -43,7 +43,7 @@ public class ModEntry : Mod
     public override void Entry(IModHelper helper)
     {
         panels = new Panels(helper, Monitor);
-        diagnostics = helper.ReadConfig<ModConfig>().Diagnostics;
+        diagnostics = panels.diagnostics = helper.ReadConfig<ModConfig>().Diagnostics;
         helper.Events.GameLoop.GameLaunched += (_, _) => OpenWindow();
         helper.Events.GameLoop.UpdateTicked += OnUpdateTicked;
         helper.Events.GameLoop.DayStarted += (_, _) => panels.MarkCropsDirty();
