@@ -205,7 +205,10 @@ public class Panels
             case Android.Views.MotionEventActions.Down:
                 headerTouch = scrollingTabs = listTouch = scrollingList = false;
                 pressAt = new Point(x, y); pressTick = Game1.ticks; pressDown = true; longPressed = false;
-                dragFrom = Showing == Tab.Bag && OpenInventory == null ? BagSlotAt(x, y - ContentShift) : -1;
+                // Drag from the bag: anywhere on the plain Bag tab, and to the trash in chest-style menus.
+                dragFrom = Showing != Tab.Bag ? -1
+                    : OpenInventory == null ? BagSlotAt(x, y - ContentShift)
+                    : Storage != null ? StoreBagSlotAt(x, y - ContentShift) : -1;
                 if (dragFrom >= 0 && Game1.player.Items[dragFrom] == null) dragFrom = -1;
                 dragAt = new Point(x, y);
                 dragging = false;
@@ -216,6 +219,7 @@ public class Panels
             case Android.Views.MotionEventActions.Move when dragFrom >= 0:
                 // A few pixels of wobble still counts as a tap.
                 dragging |= Math.Abs(x - dragAt.X) + Math.Abs(y - dragAt.Y) > 12;
+                if (dragging) pressDown = false;
                 if (dragging) dragAt = new Point(x, y);
                 break;
             case Android.Views.MotionEventActions.Up:
@@ -1148,7 +1152,14 @@ public class Panels
         storePage = Math.Min(storePage, pages - 1);
 
         Card(b, 8, 58, 604, 202);
-        Text(b, "Chest - tap to take, hold for an amount", new Vector2(22, 64), Faint);
+        var grabMenu = Game1.activeClickableMenu as ItemGrabMenu;
+        string chestLabel = grabMenu?.source switch
+        {
+            4 => "No room in your bag - tap to take, drag a bag item to the trash",
+            3 => "Treasure - tap to take",
+            _ => "Chest - tap to take, hold for an amount",
+        };
+        Text(b, chestLabel, new Vector2(22, 64), Faint);
         if (pages > 1)
         {
             Text(b, $"{storePage + 1}/{pages}", new Vector2(440, 64), Faint);
@@ -1169,7 +1180,7 @@ public class Panels
         }
 
         Card(b, 8, 264, 604, 204);
-        Text(b, "Bag - tap to store, hold for an amount", new Vector2(22, 270), Faint);
+        Text(b, "Bag - tap to store, hold or drag to trash", new Vector2(22, 270), Faint);
         var items = Game1.player.Items;
         for (int i = 0; i < 36; i++)
         {
@@ -1362,10 +1373,15 @@ public class Panels
         Enumerable.Range(0, Game1.player.MaxItems).FirstOrDefault(n => SlotRect(n).Contains(x, y), -1);
 
     /// <summary>Drops a dragged item: trash, stack onto the same kind of item, or swap slots.</summary>
+    static int StoreBagSlotAt(int x, int y) =>
+        Enumerable.Range(0, Game1.player.MaxItems).FirstOrDefault(n => StoreBagRect(n).Contains(x, y), -1);
+
     void DropItem(int from, int x, int y)
     {
         var items = Game1.player.Items;
         if (from < 0 || items[from] is not Item moving) return;
+        // In chest-style menus a drag only trashes; moving between slots goes through the menu's taps.
+        if (Storage != null && !TrashRect.Contains(x, y)) return;
 
         if (TrashRect.Contains(x, y))
         {
