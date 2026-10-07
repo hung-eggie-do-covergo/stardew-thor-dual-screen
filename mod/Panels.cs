@@ -76,7 +76,7 @@ public class Panels
         : Game1.gameMode == Game1.loadingMode || Showing == Tab.Saving ? 6
         : dragging || listTouch || scrollingTabs ? 2
         // Aim shows the living world: 30/s while you move or swing, 2/s standing still (water, grass, NPCs).
-        : Showing == Tab.Aim ? (Game1.player.isMoving() || Game1.player.UsingTool ? 2 : 30)
+        : Showing == Tab.Aim ? (Game1.ticks < aimBusyUntil ? 2 : 30)
         : 0;
 
     /// <summary>A cheap fingerprint of what the showing screen depends on; the bottom screen redraws when it
@@ -2050,8 +2050,19 @@ public class Panels
     bool pressDown, longPressed;
     const int LongPressTicks = 30;
 
+    // Aim stays at full rate for a moment after you stop, so walk-stop and swing animations finish smoothly.
+    int aimBusyUntil;
+    Vector2 lastAimPos;
+
     public void Tick()
     {
+        if (Context.IsWorldReady && Showing == Tab.Aim)
+        {
+            var p = Game1.player;
+            if (p.isMoving() || p.UsingTool || p.Position != lastAimPos)
+                aimBusyUntil = Game1.ticks + 45;
+            lastAimPos = p.Position;
+        }
         if (Context.IsWorldReady)
         {
             // A swing just finished (watering can, scythe, hoe): re-check only the dry and ready tiles.
