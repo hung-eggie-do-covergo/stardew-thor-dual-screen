@@ -49,8 +49,8 @@ straight into your bag.
 
 ## Aim
 
-A close-up of the tiles around you. Tap a tile to place furniture, seeds or a chest exactly there,
-or to turn and swing your tool at it. A green or red square shows whether it fits, and your hotbar
+A close-up of the tiles around you. Touch the map and the target follows your finger; lift to place
+furniture, seeds or a chest exactly there, or to turn and swing your tool at it. A green or red square shows whether it fits, and your hotbar
 sits along the bottom so you can swap tools without leaving. It follows the game's lighting, so
 nights, caves and lamps look the same as on top.
 
