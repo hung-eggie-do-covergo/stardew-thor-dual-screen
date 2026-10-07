@@ -86,7 +86,7 @@ public class Panels
     public int StateKey()
     {
         var h = new HashCode();
-        h.Add(Showing); h.Add(aimTile); h.Add(tabScroll); h.Add(gridScroll); h.Add(sellAmount); h.Add(sellPick); h.Add(storeIndex);
+        h.Add(Showing); h.Add(aimTile); h.Add(CanSkipEvent); h.Add(Game1.timeOfDay >= 1800); h.Add(tabScroll); h.Add(gridScroll); h.Add(sellAmount); h.Add(sellPick); h.Add(storeIndex);
         h.Add(storePage); h.Add(numpadMax); h.Add(numpadText); h.Add(statusUntil > Game1.ticks); h.Add(Game1.player?.Money ?? 0);
         if (!Context.IsWorldReady) return h.ToHashCode();
         var items = Game1.player.Items;
@@ -152,7 +152,9 @@ public class Panels
     };
 
     // Panels stay up behind menus; only the title screen and cutscenes show the logo.
-    static bool Idle => !Context.IsWorldReady || Game1.eventUp;
+    // Festivals keep the tabs (shops, gifts, your bag); in a cutscene only its menus (answers) take over.
+    static bool Idle => !Context.IsWorldReady
+        || (Game1.eventUp && Game1.CurrentEvent?.isFestival != true && MenuLayout == null);
 
     /// <summary>The layout a top menu takes over the bottom screen with, if any.</summary>
     static Tab? MenuLayout => Game1.activeClickableMenu switch
@@ -254,7 +256,7 @@ public class Panels
     void Tap(int x, int y)
     {
         if (!Context.IsWorldReady && Game1.activeClickableMenu is TitleMenu tm) { TapTitle(tm, x, y); return; }
-        if (Idle) return;
+        if (Idle) { if (CanSkipEvent && BigSkip.Contains(x, y)) SkipEvent(); return; }
         if (numpadMax > 0) { TapNumpad(x, y - ContentShift); return; }
         if (HeaderShown && y < TabH)
         {
@@ -338,9 +340,39 @@ public class Panels
             DrawLoadingStrip(b, Game1.content.LoadString("Strings\\StringsFromCSFiles:Game1.cs.3688"));
             return;
         }
+        // Cutscenes and other idle moments: the valley (day or night, like the clock), the logo, and a big Skip
+        // when the scene can be skipped.
         logo ??= Game1.content.Load<Texture2D>("Minigames\\TitleButtons");
+        clouds ??= Game1.content.Load<Texture2D>("Minigames\\Clouds");
+        int w = ModEntry.W, h = ModEntry.H;
+        bool night = Context.IsWorldReady && Game1.timeOfDay >= 1800;
+        if (night) b.Draw(Game1.mouseCursors, new Rectangle(0, 0, w, h), new Rectangle(639, 858, 1, 184), Color.White);
+        else
+        {
+            b.Draw(Game1.staminaRect, new Rectangle(0, 0, w, h), new Color(64, 136, 248));
+            b.Draw(Game1.mouseCursors, new Rectangle(0, -600, w, 600 + h - 240), new Rectangle(703, 1912, 1, 264), Color.White);
+            b.Draw(clouds, new Vector2(-100, h - 500), new Rectangle(0, 0, 512, 337), Color.White * 0.6f, 0, Vector2.Zero, 2f, SpriteEffects.None, 0);
+        }
+        var hills = night ? new Color(30, 62, 50) : Color.White;
+        b.Draw(Game1.mouseCursors, new Vector2(-60, h - 316), new Rectangle(0, 886, 639, 148), hills, 0, Vector2.Zero, 2f, SpriteEffects.None, 0);
+        b.Draw(Game1.mouseCursors, new Vector2(0, h - 296), new Rectangle(0, 737, 639, 148), hills, 0, Vector2.Zero, 2f, SpriteEffects.None, 0);
         var src = new Rectangle(0, 0, 398, 187);
-        b.Draw(logo, new Vector2((ModEntry.W - src.Width) / 2, (ModEntry.H - src.Height) / 2), src, Color.White * 0.6f);
+        b.Draw(logo, new Vector2((w - src.Width) / 2, 40), src, Color.White);
+        if (CanSkipEvent) DrawBigButton(b, BigSkip, "Skip", true);
+    }
+
+    Texture2D clouds;
+    static readonly Rectangle BigSkip = new(160, 330, 300, 100);
+
+    static bool CanSkipEvent => Game1.eventUp && Game1.CurrentEvent is Event e && e.skippable && !e.skipped;
+
+    /// <summary>Same steps as clicking the top screen's Skip.</summary>
+    static void SkipEvent()
+    {
+        var e = Game1.CurrentEvent;
+        e.skipped = true;
+        e.skipEvent();
+        Game1.freezeControls = false;
     }
 
     /// <summary>Four labelled tab buttons across the top; the open one is lit and drops onto the page.</summary>
