@@ -75,8 +75,8 @@ public class Panels
         TitleAnimating ? 2
         : Game1.gameMode == Game1.loadingMode || Showing == Tab.Saving ? 6
         : dragging || listTouch || scrollingTabs ? 2
-        // Aim shows the living world: smooth while you move or swing, a slow trickle for idle animation.
-        : Showing == Tab.Aim ? (Game1.player.isMoving() || Game1.player.UsingTool ? 2 : 12)
+        // Aim shows the living world: 30/s while you move or swing, 2/s standing still (water, grass, NPCs).
+        : Showing == Tab.Aim ? (Game1.player.isMoving() || Game1.player.UsingTool ? 2 : 30)
         : 0;
 
     /// <summary>A cheap fingerprint of what the showing screen depends on; the bottom screen redraws when it

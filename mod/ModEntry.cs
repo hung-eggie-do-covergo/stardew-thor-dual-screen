@@ -160,7 +160,7 @@ public class ModEntry : Mod
 
     bool diagnostics;
     long modBytes, modTicks;
-    int renders;
+    int renders, keyChanges;
 
     void Update(UpdateTickedEventArgs e)
     {
@@ -184,6 +184,7 @@ public class ModEntry : Mod
             if (key != lastKey)
             {
                 lastKey = key;
+                keyChanges++;
                 pendingRedraws = 1;
                 Render();
                 return;
@@ -268,9 +269,9 @@ public class ModEntry : Mod
             long total = GC.GetTotalAllocatedBytes();
             double secs = rateClock.Elapsed.TotalSeconds;
             Monitor.Log($"[{panels.ShowingName}] mod: {modBytes / secs / 1024:0.0} KB/s, {modTicks * 1000.0 / Stopwatch.Frequency / secs:0.00} ms/s on the game thread, " +
-                $"{renders / secs:0.0} renders/s | game: {(total - rateBytes) / secs / 1048576:0.00} MB/s, GCs gen0 {g0 - rateG0} gen1 {g1 - rateG1} full {g2 - rateG2}, slow frames {slowFrames}", LogLevel.Trace);
+                $"{renders / secs:0.0} renders/s ({keyChanges} from changes) | game: {(total - rateBytes) / secs / 1048576:0.00} MB/s, GCs gen0 {g0 - rateG0} gen1 {g1 - rateG1} full {g2 - rateG2}, slow frames {slowFrames}", LogLevel.Trace);
             rateBytes = total; rateG0 = g0; rateG1 = g1; rateG2 = g2; slowFrames = 0;
-            modBytes = modTicks = 0; renders = 0;
+            modBytes = modTicks = 0; renders = keyChanges = 0;
             rateClock.Restart();
         }
     }
