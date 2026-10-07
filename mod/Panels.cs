@@ -108,7 +108,8 @@ public class Panels
                 }
                 break;
             case Tab.People:
-                Utility.ForEachVillager(v => { if (Met(v)) h.Add(v.currentLocation?.NameOrUniqueName); return true; });
+                // Location objects by reference: no strings, no walk beyond the once-a-second list.
+                foreach (var v in People()) h.Add(System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(v.currentLocation));
                 h.Add(personPick?.Name); h.Add(personGifts);
                 if (personPick != null) h.Add(personPick.TilePoint);
                 break;
@@ -662,7 +663,8 @@ public class Panels
 
         Text(b, "Loves", new Vector2(ox + 0, oy + 114), Faint);
         int i = 0;
-        foreach (var item in Loves(npc).Take(24))
+        if (lovesFor != npc.Name) { lovesFor = npc.Name; lovesCache = Loves(npc).Take(24).ToList(); }
+        foreach (var item in lovesCache)
         {
             int x = ox + i % 6 * 46, y = oy + 140 + i / 6 * 46;
             SlotFrame(b, x, y, 44);
@@ -699,6 +701,10 @@ public class Panels
             .OrderBy(n => Vector2.Distance(n.Tile, me))
             .FirstOrDefault();
     }
+
+    // Loved items are created once per villager shown, not on every redraw.
+    string lovesFor;
+    List<Item> lovesCache = new();
 
     static IEnumerable<Item> Loves(NPC npc)
     {
@@ -775,18 +781,28 @@ public class Panels
 
     static bool Met(NPC n) => n.CanSocialize && Game1.player.friendshipData.ContainsKey(n.Name);
 
-    /// <summary>Villagers you've met, where you are first, then by place, then by name.</summary>
-    static List<NPC> People()
+    /// <summary>Villagers you've met, where you are first, then by place, then by name. Rebuilt at most once a
+    /// second: walking every location for every villager is the most expensive thing the mod does.</summary>
+    List<NPC> People()
     {
-        var list = new List<NPC>();
+        if (peopleCache != null && Game1.ticks - peopleTick < 60) return peopleCache;
+        peopleTick = Game1.ticks;
+        var list = peopleCache ?? new List<NPC>();
+        list.Clear();
         // Only people you've met, so the list doesn't spoil who's out there.
         Utility.ForEachVillager(n => { if (Met(n) && n.currentLocation != null) list.Add(n); return true; });
         var here = Game1.currentLocation;
-        return list.OrderBy(n => n.currentLocation == here ? 0 : 1)
-            .ThenBy(n => n.currentLocation.DisplayName)
-            .ThenBy(n => n.displayName)
-            .ToList();
+        list.Sort((a, b) =>
+        {
+            int c = (a.currentLocation == here ? 0 : 1).CompareTo(b.currentLocation == here ? 0 : 1);
+            if (c == 0) c = string.CompareOrdinal(a.currentLocation.DisplayName, b.currentLocation.DisplayName);
+            return c != 0 ? c : string.CompareOrdinal(a.displayName, b.displayName);
+        });
+        return peopleCache = list;
     }
+
+    List<NPC> peopleCache;
+    int peopleTick;
 
     /// <summary>Location name for people; rooms with only an internal name ("HarveyRoom") get spaces.</summary>
     static string PlaceName(GameLocation loc) =>

@@ -43,6 +43,7 @@ public class ModEntry : Mod
     public override void Entry(IModHelper helper)
     {
         panels = new Panels(helper, Monitor);
+        diagnostics = helper.ReadConfig<ModConfig>().Diagnostics;
         helper.Events.GameLoop.GameLaunched += (_, _) => OpenWindow();
         helper.Events.GameLoop.UpdateTicked += OnUpdateTicked;
         helper.Events.GameLoop.DayStarted += (_, _) => panels.MarkCropsDirty();
@@ -147,8 +148,24 @@ public class ModEntry : Mod
     void OnUpdateTicked(object sender, UpdateTickedEventArgs e)
     {
         if (view == null) return;
+        if (!diagnostics) { Update(e); return; }
+        long a0 = GC.GetAllocatedBytesForCurrentThread(), t0 = Stopwatch.GetTimestamp();
+        try { Update(e); }
+        finally
+        {
+            modBytes += GC.GetAllocatedBytesForCurrentThread() - a0;
+            modTicks += Stopwatch.GetTimestamp() - t0;
+        }
+    }
+
+    bool diagnostics;
+    long modBytes, modTicks;
+    int renders;
+
+    void Update(UpdateTickedEventArgs e)
+    {
         if (Game1.quit) { CloseWindow(); return; }
-        TrackFrame();
+        if (diagnostics) TrackFrame();
         panels.Tick();
 
         while (touches.TryDequeue(out var t))
@@ -216,7 +233,8 @@ public class ModEntry : Mod
         maxDraw = Math.Max(maxDraw, drawn);
         maxRead = Math.Max(maxRead, readDone - drawn);
         renderedThisTick = true;
-        if (++frames % 300 == 0)
+        renders++;
+        if (diagnostics && ++frames % 300 == 0)
         {
             Monitor.Log($"Bottom screen ms/update: draw {drawTicks / frames / 1e4:0.00}, read {readTicks / frames / 1e4:0.00}, worst {maxUpdate / 1e4:0.0} (draw {maxDraw / 1e4:0.0}, read {maxRead / 1e4:0.0}) on {panels.ShowingName}; mod allocates {allocBytes / frames / 1024.0:0.0} KB/update", LogLevel.Trace);
             drawTicks = readTicks = frames = 0;
@@ -248,9 +266,11 @@ public class ModEntry : Mod
         if (rateClock.Elapsed.TotalSeconds >= 10)
         {
             long total = GC.GetTotalAllocatedBytes();
-            Monitor.Log($"Game allocates {(total - rateBytes) / rateClock.Elapsed.TotalSeconds / 1048576:0.00} MB/s; GCs in 10 s: " +
-                $"gen0 {g0 - rateG0}, gen1 {g1 - rateG1}, full {g2 - rateG2}; slow frames {slowFrames}", LogLevel.Trace);
+            double secs = rateClock.Elapsed.TotalSeconds;
+            Monitor.Log($"[{panels.ShowingName}] mod: {modBytes / secs / 1024:0.0} KB/s, {modTicks * 1000.0 / Stopwatch.Frequency / secs:0.00} ms/s on the game thread, " +
+                $"{renders / secs:0.0} renders/s | game: {(total - rateBytes) / secs / 1048576:0.00} MB/s, GCs gen0 {g0 - rateG0} gen1 {g1 - rateG1} full {g2 - rateG2}, slow frames {slowFrames}", LogLevel.Trace);
             rateBytes = total; rateG0 = g0; rateG1 = g1; rateG2 = g2; slowFrames = 0;
+            modBytes = modTicks = 0; renders = 0;
             rateClock.Restart();
         }
     }
@@ -269,4 +289,6 @@ public class ModConfig
     public List<string> TabOrder { get; set; } = new() { "Today", "Gifts", "People", "Bag", "Craft", "Aim" };
     public List<string> HiddenTabs { get; set; } = new();
     public string LastTab { get; set; } = "Today";
+    /// <summary>Write performance numbers to the SMAPI log every 10 s (for troubleshooting stutter).</summary>
+    public bool Diagnostics { get; set; } = false;
 }
