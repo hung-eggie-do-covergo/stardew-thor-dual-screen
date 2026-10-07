@@ -34,8 +34,9 @@ take what you're holding, and what they love.
 
 ## Bag
 
-Touch inventory. Tap to hold, drag to rearrange, drag onto the trash can (with your trash-can
-upgrade refund), and stack your bag into nearby chests in one tap. Picking items off a 36-slot grid
+Touch inventory. Tap to hold, drag to rearrange, and stack your bag into nearby chests in one tap.
+While you drag, a big trash can appears in the middle (easy for either thumb); drop on it to trash,
+with your trash-can upgrade refund. It works in chests and the "no room" menu after a catch too. Picking items off a 36-slot grid
 with a d-pad was the single worst part of playing on a handheld.
 
 ![Bag tab](screenshots/bag.png)
@@ -72,8 +73,12 @@ number on a pad. In a chest, hold a slot to move part of a stack.
 
 Also covered: **Community Center bundles** (pick a bundle, then tap items to give them; ones it
 can't use are greyed out), **the museum, forge and sewing machine** (items the menu won't take are
-greyed out), and **end of day** (the shipping summary by category, level-up and profession choices,
-and saving). While a menu takes over, the tab strip hides.
+greyed out), and **end of day** (the top screen's night scene with the date and the day's total, the
+Level Up banner, and one big Continue or two big profession buttons). While a menu takes over, the
+tab strip hides.
+
+During cutscenes the bottom shows the valley with a big **SKIP** sign whenever the scene can be
+skipped. Festivals keep your tabs.
 
 Questions with answers (the mine elevator, villagers asking you something) appear as big buttons.
 Everything here goes through the game's own menus, so prices, rules and sounds are exactly the
