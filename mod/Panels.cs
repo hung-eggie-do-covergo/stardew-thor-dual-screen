@@ -534,18 +534,22 @@ public class Panels
         _ => 2,
     };
 
-    // Crop counts only change when the day starts, a tool swing lands (water, hoe, scythe) or farm tiles and
-    // objects change (planting, picking, pots), so they're recounted then instead of on every redraw.
+    // Crop counts change when the day starts, a tool swing lands (water, hoe, scythe) or the bag changes
+    // (planting, picking), so they're recounted then instead of on every redraw.
     (int ready, Item readyItem, int dry) crops;
     bool cropsDirty = true, wasUsingTool;
 
     public void MarkCropsDirty() => cropsDirty = true;
     int cropsTick = -999;
+    Tab? lastShowing;
 
     /// <summary>At most once a second: a late-game harvest dirties this on every pickup, and a big farm is
     /// thousands of tiles to walk.</summary>
     void RecountCrops()
     {
+        // No world-change subscriptions (those keep SMAPI watching every location even with Today closed):
+        // recount on open, on our own triggers, and every 5 s while Today stays open.
+        if (Game1.ticks - cropsTick >= 300) cropsDirty = true;
         if (!cropsDirty || Game1.ticks - cropsTick < 60) return;
         cropsTick = Game1.ticks;
         cropsDirty = false;
@@ -2105,6 +2109,10 @@ public class Panels
 
     public void Tick()
     {
+        // Today was just opened: its crop counts may be stale.
+        var showing = Showing;
+        if (showing == Tab.Today && lastShowing != Tab.Today) cropsDirty = true;
+        lastShowing = showing;
         if (Context.IsWorldReady)
         {
             bool using_ = Game1.player.UsingTool;

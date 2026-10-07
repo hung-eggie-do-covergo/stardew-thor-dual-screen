@@ -47,8 +47,6 @@ public class ModEntry : Mod
         helper.Events.GameLoop.GameLaunched += (_, _) => OpenWindow();
         helper.Events.GameLoop.UpdateTicked += OnUpdateTicked;
         helper.Events.GameLoop.DayStarted += (_, _) => panels.MarkCropsDirty();
-        helper.Events.World.TerrainFeatureListChanged += (_, _) => panels.MarkCropsDirty();
-        helper.Events.World.ObjectListChanged += (_, _) => panels.MarkCropsDirty();
         // Picking a crop by hand isn't a tool swing, but it lands in the bag.
         helper.Events.Player.InventoryChanged += (_, _) => panels.MarkCropsDirty();
     }
