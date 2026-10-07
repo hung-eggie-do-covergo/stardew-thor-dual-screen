@@ -72,7 +72,7 @@ public class Panels
 
     /// <summary>Ticks between redraws for screens that move on their own; 0 = static, redraw only on change.</summary>
     public int AnimationInterval =>
-        TitleAnimating ? 2
+        TitleAnimating || (Idle && CanSkipEvent) ? 2
         : Game1.gameMode == Game1.loadingMode || Showing == Tab.Saving ? 6
         : dragging || listTouch || scrollingTabs ? 2
         // Aim shows the living world: 30/s while you move or swing, 2/s standing still (water, grass, NPCs).
@@ -358,11 +358,18 @@ public class Panels
         b.Draw(Game1.mouseCursors, new Vector2(0, h - 296), new Rectangle(0, 737, 639, 148), hills, 0, Vector2.Zero, 2f, SpriteEffects.None, 0);
         var src = new Rectangle(0, 0, 398, 187);
         b.Draw(logo, new Vector2((w - src.Width) / 2, 40), src, Color.White);
-        if (CanSkipEvent) DrawBigButton(b, BigSkip, "Skip", true);
+        if (CanSkipEvent)
+        {
+            // The game's own SKIP sign, big, bobbing gently like the title's "Tap to skip".
+            int bob = (int)Math.Round(Math.Sin(Game1.ticks / 12.0) * 6);
+            var r = BigSkip;
+            b.Draw(Game1.mouseCursors, new Vector2(r.X, r.Y + bob), new Rectangle(205, 406, 22, 15), Color.White, 0, Vector2.Zero, 8f, SpriteEffects.None, 0);
+        }
     }
 
     Texture2D clouds;
-    static readonly Rectangle BigSkip = new(160, 330, 300, 100);
+    // The SKIP sign (22x15) at 8x, centred under the logo.
+    static readonly Rectangle BigSkip = new((ModEntry.W - 176) / 2, 320, 176, 120);
 
     static bool CanSkipEvent => Game1.eventUp && Game1.CurrentEvent is Event e && e.skippable && !e.skipped;
 
