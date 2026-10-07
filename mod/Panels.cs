@@ -1017,120 +1017,66 @@ public class Panels
     // The top screen already shows category totals and the two professions; the bottom adds what it
     // doesn't: every item shipped at once, tomorrow's outlook, and where each profession leads.
 
-    static readonly Rectangle EndContinue = new(352, 528, 260, 60);
+
+    // End of day: the top screen already has the numbers, so the bottom carries the same art as the top
+    // (night sky, hills, the date on a scroll) and one big Continue button.
+    static readonly Rectangle BigContinue = new(110, 380, 400, 110);
 
     void DrawShipped(SpriteBatch b, ShippingMenu menu)
     {
-        var items = helper.Reflection.GetField<List<List<Item>>>(menu, "categoryItems").GetValue();
-        var all = items.Take(5).SelectMany(l => l)
-            .Select(it => (item: it, value: Utility.getSellToStorePriceOfItem(it)))
-            .OrderByDescending(x => x.value).ToList();
+        int top = -ContentShift, w = ModEntry.W, h = ModEntry.H;
+        b.Draw(Game1.mouseCursors, new Rectangle(0, top, w, h), new Rectangle(639, 858, 1, 184), Color.White);
+        b.Draw(Game1.mouseCursors, new Vector2(0, top + h - 96), new Rectangle(0, 737, 639, 48), new Color(30, 62, 50) * 0.5f, 0, Vector2.Zero, 2f, SpriteEffects.None, 0);
+        b.Draw(Game1.mouseCursors, new Vector2(0, top + h - 64), new Rectangle(0, 737, 639, 32), new Color(30, 62, 50), 0, Vector2.Zero, 2f, SpriteEffects.None, 0);
+        b.Draw(Game1.mouseCursors, new Vector2(80, top + h - 52), new Rectangle(653, 880, 10, 10), Color.White, 0, Vector2.Zero, 2f, SpriteEffects.None, 0);
 
-        Card(b, 8, 58, 604, 346);
-        Text(b, "Shipped today", new Vector2(22, 64), Faint);
-        RightText(b, $"{Utility.getNumberWithCommas(all.Sum(x => x.value))}g", 598, 64, Color.DarkGreen);
-        if (all.Count == 0) Text(b, "Nothing shipped.", new Vector2(22, 100), Faint);
-        const int rows = 8;
-        for (int i = 0; i < Math.Min(all.Count, rows); i++)
-        {
-            var (it, value) = all[i];
-            int y = 96 + i * 36;
-            if (i == rows - 1 && all.Count > rows) { Text(b, $"+{all.Count - rows + 1} more", new Vector2(22, y), Faint); break; }
-            Item(b, it, 22, y - 4, 32);
-            Text(b, it.Stack > 1 ? $"{it.DisplayName} x{it.Stack}" : it.DisplayName, new Vector2(62, y));
-            RightText(b, $"{Utility.getNumberWithCommas(value)}g", 598, y, Ink);
-        }
+        StardewValley.BellsAndWhistles.SpriteText.drawStringWithScrollCenteredAt(b, Utility.getDateString(), w / 2, top + 60);
+        int total = helper.Reflection.GetField<List<int>>(menu, "categoryTotals").GetValue().LastOrDefault();
+        StardewValley.BellsAndWhistles.SpriteText.drawStringHorizontallyCenteredAt(b, $"{Utility.getNumberWithCommas(total)}g", w / 2, top + 180,
+            999999, -1, 999999, 1f, 0.88f, false, StardewValley.BellsAndWhistles.SpriteText.color_White);
 
-        DrawTomorrow(b, 412);
-
-        bool ready = helper.Reflection.GetField<int>(menu, "introTimer").GetValue() <= 0;
-        IClickableMenu.drawTextureBox(b, Game1.mouseCursors, BoxSrc, EndContinue.X, EndContinue.Y, EndContinue.Width, EndContinue.Height, ready ? Color.White : new Color(200, 160, 120), 2f, false);
-        Text(b, "Continue", new Vector2(EndContinue.X + 80, EndContinue.Y + 18), ready ? Ink : Faint);
+        bool ready = helper.Reflection.GetField<int>(menu, "introTimer").GetValue() <= 0 && menu.currentPage == -1;
+        DrawBigButton(b, BigContinue, "Continue", ready);
     }
 
-    /// <summary>Tomorrow at a glance: forecast, birthdays and any festival, for planning while the day ends.</summary>
-    static void DrawTomorrow(SpriteBatch b, int y)
+    /// <summary>A large game-style button with the game's bitmap font, centred label.</summary>
+    static void DrawBigButton(SpriteBatch b, Rectangle r, string label, bool enabled)
     {
-        Card(b, 8, y, 604, 108);
-        Text(b, "Tomorrow", new Vector2(22, y + 6), Faint);
-        WeatherIcon(b, TomorrowIcon(Game1.weatherForTomorrow), 22, y + 44, 3);
-        Text(b, Weather(Game1.weatherForTomorrow), new Vector2(66, y + 42));
-        int day = Game1.dayOfMonth + 1;
-        var festivals = DataLoader.Festivals_FestivalDates(Game1.temporaryContent);
-        if (day <= 28 && festivals.TryGetValue($"{Game1.currentSeason}{day}", out var fest))
-            Text(b, fest, new Vector2(22, y + 74), Color.DarkGreen);
-        int x = 330;
-        if (day <= 28)
-            Utility.ForEachVillager(n =>
-            {
-                if (n.CanSocialize && n.Birthday_Season == Game1.currentSeason && n.Birthday_Day == day && x < 560)
-                {
-                    Head(b, n, x, y + 40);
-                    Icon(b, Game1.mouseCursors, Gift, x + 30, y + 52, 2);
-                    x += 70;
-                }
-                return true;
-            });
-        if (x > 330) Text(b, "Birthday", new Vector2(330, y + 6), Faint);
+        IClickableMenu.drawTextureBox(b, Game1.mouseCursors, new Rectangle(432, 439, 9, 9), r.X, r.Y, r.Width, r.Height, enabled ? Color.White : Color.Gray, 4f, false);
+        int tw = StardewValley.BellsAndWhistles.SpriteText.getWidthOfString(label);
+        StardewValley.BellsAndWhistles.SpriteText.drawString(b, label, r.Center.X - tw / 2, r.Center.Y - 22, 999999, -1, 999999, enabled ? 1f : 0.5f);
     }
 
     void TapShipped(ShippingMenu menu, int x, int y)
     {
-        if (EndContinue.Contains(x, y) && menu.currentPage == -1)
+        if (BigContinue.Contains(x, y) && menu.currentPage == -1)
             menu.receiveLeftClick(menu.okButton.bounds.Center.X, menu.okButton.bounds.Center.Y);
     }
 
-    static readonly Rectangle LeftProfession = new(8, 140, 298, 448), RightProfession = new(314, 140, 298, 448);
-
     static Rectangle ProfessionIcon(int p) => new(p % 6 * 16, 624 + p / 6 * 16, 16, 16);
+    static Rectangle ProfessionButton(int k) => new(20 + k * 300, 330, 280, 180);
 
     void DrawLevelUp(SpriteBatch b, LevelUpMenu menu)
     {
-        string title = helper.Reflection.GetField<string>(menu, "title").GetValue();
+        int top = -ContentShift, w = ModEntry.W, h = ModEntry.H;
+        b.Draw(Game1.staminaRect, new Rectangle(0, top, w, h), Color.Black * 0.55f);
+        // The top screen's "Level Up" banner and the skill icon, big.
+        b.Draw(Game1.mouseCursors, new Vector2(w / 2 - 174, top + 30), new Rectangle(363, 87, 58, 22), Color.White, 0, Vector2.Zero, 6f, SpriteEffects.None, 0);
         var skillIcon = helper.Reflection.GetField<Rectangle>(menu, "sourceRectForLevelIcon").GetValue();
-        Card(b, 8, 58, 604, 76);
-        Icon(b, Game1.buffsIcons, skillIcon, 22, 70, 3);
-        Text(b, title ?? "Level up!", new Vector2(80, 76));
+        string title = helper.Reflection.GetField<string>(menu, "title").GetValue() ?? "";
+        b.Draw(Game1.buffsIcons, new Vector2(w / 2 - 32, top + 180), skillIcon, Color.White, 0, Vector2.Zero, 4f, SpriteEffects.None, 0);
+        StardewValley.BellsAndWhistles.SpriteText.drawStringHorizontallyCenteredAt(b, title, w / 2, top + 260,
+            999999, -1, 999999, 1f, 0.88f, false, StardewValley.BellsAndWhistles.SpriteText.color_White);
 
-        if (!menu.isProfessionChooser)
-        {
-            var info = helper.Reflection.GetField<List<string>>(menu, "extraInfoForLevel").GetValue();
-            Card(b, 8, 140, 604, 380);
-            float y = 156;
-            foreach (var line in info) Wrapped(b, line, 22, ref y, 576, Ink, 3);
-            Card(b, EndContinue.X, EndContinue.Y, EndContinue.Width, EndContinue.Height);
-            Text(b, "Continue", new Vector2(EndContinue.X + 80, EndContinue.Y + 18));
-            return;
-        }
-
+        if (!menu.isProfessionChooser) { DrawBigButton(b, BigContinue, "Continue", menu.informationUp); return; }
         var choices = helper.Reflection.GetField<List<int>>(menu, "professionsToChoose").GetValue();
         for (int k = 0; k < Math.Min(choices.Count, 2); k++)
         {
-            int p = choices[k];
-            var r = k == 0 ? LeftProfession : RightProfession;
-            Card(b, r.X, r.Y, r.Width, r.Height);
-            Icon(b, Game1.mouseCursors, ProfessionIcon(p), r.X + 14, r.Y + 14, 3);
-            Text(b, LevelUpMenu.getProfessionTitleFromNumber(p), new Vector2(r.X + 70, r.Y + 24), Color.DarkGreen);
-            float y = r.Y + 70;
-            foreach (var line in LevelUpMenu.getProfessionDescription(p).Skip(1)) Wrapped(b, line, r.X + 14, ref y, r.Width - 28, Ink, 3);
-
-            // Level-5 picks decide which pair you choose from at 10; show them, the wiki question.
-            if (p % 6 < 2)
-            {
-                y = Math.Max(y + 8, r.Y + 200);
-                b.Draw(Game1.staminaRect, new Rectangle(r.X + 14, (int)y, r.Width - 28, 2), Faint * 0.5f);
-                Text(b, "Leads to at level 10", new Vector2(r.X + 14, y + 8), Faint);
-                y += 40;
-                for (int c = 0; c < 2; c++)
-                {
-                    int child = p - p % 6 + 2 + 2 * (p % 6) + c;
-                    Icon(b, Game1.mouseCursors, ProfessionIcon(child), r.X + 14, (int)y, 2);
-                    Text(b, LevelUpMenu.getProfessionTitleFromNumber(child), new Vector2(r.X + 52, y + 2));
-                    float dy = y + 30;
-                    Wrapped(b, string.Join(" ", LevelUpMenu.getProfessionDescription(child).Skip(1)), r.X + 52, ref dy, r.Width - 66, Faint, 2);
-                    y = dy + 6;
-                }
-            }
+            var r = ProfessionButton(k);
+            IClickableMenu.drawTextureBox(b, Game1.mouseCursors, new Rectangle(432, 439, 9, 9), r.X, r.Y, r.Width, r.Height, Color.White, 4f, false);
+            b.Draw(Game1.mouseCursors, new Vector2(r.Center.X - 32, r.Y + 24), ProfessionIcon(choices[k]), Color.White, 0, Vector2.Zero, 4f, SpriteEffects.None, 0);
+            string name = LevelUpMenu.getProfessionTitleFromNumber(choices[k]);
+            StardewValley.BellsAndWhistles.SpriteText.drawString(b, name, r.Center.X - StardewValley.BellsAndWhistles.SpriteText.getWidthOfString(name) / 2, r.Y + 110);
         }
     }
 
@@ -1140,10 +1086,10 @@ public class Panels
         if (!menu.isActive || !menu.readyToClose()) return;
         if (!menu.isProfessionChooser)
         {
-            if (EndContinue.Contains(x, y) && menu.informationUp) menu.okButtonClicked();
+            if (BigContinue.Contains(x, y) && menu.informationUp) menu.okButtonClicked();
             return;
         }
-        int pick = LeftProfession.Contains(x, y) ? 0 : RightProfession.Contains(x, y) ? 1 : -1;
+        int pick = ProfessionButton(0).Contains(x, y) ? 0 : ProfessionButton(1).Contains(x, y) ? 1 : -1;
         if (pick < 0) return;
         int profession = helper.Reflection.GetField<List<int>>(menu, "professionsToChoose").GetValue()[pick];
         Game1.player.professions.Add(profession);
