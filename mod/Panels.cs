@@ -86,7 +86,7 @@ public class Panels
     public int StateKey()
     {
         var h = new HashCode();
-        h.Add(Showing); h.Add(tabScroll); h.Add(gridScroll); h.Add(sellAmount); h.Add(sellPick); h.Add(storeIndex);
+        h.Add(Showing); h.Add(aimTile); h.Add(tabScroll); h.Add(gridScroll); h.Add(sellAmount); h.Add(sellPick); h.Add(storeIndex);
         h.Add(storePage); h.Add(numpadMax); h.Add(numpadText); h.Add(statusUntil > Game1.ticks); h.Add(Game1.player?.Money ?? 0);
         if (!Context.IsWorldReady) return h.ToHashCode();
         var items = Game1.player.Items;
@@ -202,8 +202,24 @@ public class Panels
                 scrollingList |= Math.Abs(y - listStartY) > 12;
                 if (scrollingList) gridScroll = Math.Clamp(listStartValue - (y - listStartY), 0, MaxGridScroll);
                 break;
+            // Aim: the target follows your finger while it's down, and lifting it acts there: one touch.
+            case Android.Views.MotionEventActions.Down when Showing == Tab.Aim && HeaderShown && y >= TabH && y < AimBarY
+                && Game1.activeClickableMenu == null && !RotateHit(x, y):
+                headerTouch = scrollingTabs = listTouch = scrollingList = pressDown = false;
+                dragFrom = -1; dragging = false;
+                aimPressing = true;
+                aimTile = AimTileAt(x, y);
+                break;
+            case Android.Views.MotionEventActions.Move when aimPressing:
+                if (y >= TabH && y < AimBarY) aimTile = AimTileAt(x, y);
+                break;
+            case Android.Views.MotionEventActions.Up when aimPressing:
+                aimPressing = false;
+                // Lifted off the map (onto the tabs or the toolbar): cancel.
+                if (y >= TabH && y < AimBarY) TapAim(x, y);
+                break;
             case Android.Views.MotionEventActions.Down:
-                headerTouch = scrollingTabs = listTouch = scrollingList = false;
+                headerTouch = scrollingTabs = listTouch = scrollingList = aimPressing = false;
                 pressAt = new Point(x, y); pressTick = Game1.ticks; pressDown = true; longPressed = false;
                 // Drag from the bag: anywhere on the plain Bag tab, and to the trash in chest-style menus.
                 dragFrom = Showing != Tab.Bag ? -1
@@ -2437,6 +2453,14 @@ public class Panels
         Game1.playSound(fits ? "dwop" : "cancel");
     }
 
+    bool aimPressing;
+
+    Vector2 AimTileAt(int x, int y) =>
+        new((int)Math.Floor((x / AimZoom + aimView.X) / 64), (int)Math.Floor((y / AimZoom + aimView.Y) / 64));
+
+    static bool RotateHit(int x, int y) =>
+        Game1.player.ActiveObject is StardewValley.Objects.Furniture f && f.rotations.Value > 1 && RotateRect.Contains(x, y);
+
     void TapAim(int x, int y)
     {
         // A menu on top owns the game; don't place or swing behind it.
@@ -2453,13 +2477,11 @@ public class Panels
             Game1.playSound("dwop");
             return;
         }
-        var tile = new Vector2((int)Math.Floor((x / AimZoom + aimView.X) / 64), (int)Math.Floor((y / AimZoom + aimView.Y) / 64));
+        var tile = AimTileAt(x, y);
+        aimTile = tile;
         int px = (int)tile.X * 64 + 32, py = (int)tile.Y * 64 + 32;
         var loc = Game1.currentLocation;
         var held = Game1.player.ActiveObject;
-
-        // First tap picks the tile; tapping the same tile again acts on it.
-        if (aimTile != tile) { aimTile = tile; return; }
 
         if (held != null && held.isPlaceable())
         {
