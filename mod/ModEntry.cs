@@ -213,6 +213,8 @@ public class ModEntry : Mod
         timer.Restart();
         var oldTargets = gd.GetRenderTargets();
         var oldViewport = gd.Viewport;
+        try { panels.PrepareOffscreen(gd, batch); }
+        catch (Exception ex) { Monitor.LogOnce($"Item info failed: {ex}", LogLevel.Error); }
         gd.SetRenderTarget(draw);
         gd.Clear(new XColor(0, 0, 0));
         batch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp);

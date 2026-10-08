@@ -39,6 +39,10 @@ While you drag, a big trash can appears in the middle (easy for either thumb); d
 with your trash-can upgrade refund. It works in chests and the "no room" menu after a catch too. Picking items off a 36-slot grid
 with a d-pad was the single worst part of playing on a handheld.
 
+Tap the held item's card (or a shop item's card) for its full tooltip, the same one the top screen
+shows on hover, laid out across the bottom screen. Mods that add lines to the game's tooltip, such
+as UI Info Suite 2's bundle, quest and machine notes, show up there too when installed.
+
 ![Bag tab](screenshots/bag.png)
 
 ## Craft
@@ -73,14 +77,16 @@ number on a pad. In a chest, hold a slot to move part of a stack.
 
 Also covered: **Community Center bundles** (pick a bundle, then tap items to give them; ones it
 can't use are greyed out), **the museum, forge and sewing machine** (items the menu won't take are
-greyed out), and **end of day** (the top screen's night scene with the date and the day's total, the
-Level Up banner, and one big Continue or two big profession buttons). While a menu takes over, the
+greyed out), and **end of day** (the top screen's night scene with the day's date and total, the
+Level Up banner, and one big Continue or two big profession buttons; after Continue the date slides
+down and turns over in step with the top screen). While a menu takes over, the
 tab strip hides.
 
 During cutscenes the bottom shows the valley with a big **SKIP** sign whenever the scene can be
 skipped. Festivals keep your tabs.
 
-Questions with answers (the mine elevator, villagers asking you something) appear as big buttons.
+Questions with answers (the mine elevator, villagers asking you something) appear in the game's
+dialogue box, each answer a tall row; the highlight follows the top screen.
 Everything here goes through the game's own menus, so prices, rules and sounds are exactly the
 game's.
 

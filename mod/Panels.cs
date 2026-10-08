@@ -60,6 +60,7 @@ public class Panels
     void Open(Tab t)
     {
         gridScroll = 0;
+        infoItem = null;
         tab = t;
         config.LastTab = t.ToString();
         helper.WriteConfig(config);
@@ -73,6 +74,7 @@ public class Panels
     /// <summary>Ticks between redraws for screens that move on their own; 0 = static, redraw only on change.</summary>
     public int AnimationInterval =>
         TitleAnimating || (Idle && CanSkipEvent) ? 2
+        : Showing is Tab.Shipped or Tab.LevelUp ? 2
         : Game1.gameMode == Game1.loadingMode || Showing == Tab.Saving ? 6
         : dragging || listTouch || scrollingTabs ? 2
         // Aim shows the living world: 30/s while you move or swing, 2/s standing still (water, grass, NPCs).
@@ -87,7 +89,7 @@ public class Panels
     {
         var h = new HashCode();
         h.Add(Showing); h.Add(aimTile); h.Add(CanSkipEvent); h.Add(Game1.timeOfDay >= 1800); h.Add(tabScroll); h.Add(gridScroll); h.Add(sellAmount); h.Add(sellPick); h.Add(storeIndex);
-        h.Add(storePage); h.Add(numpadMax); h.Add(numpadText); h.Add(statusUntil > Game1.ticks); h.Add(Game1.player?.Money ?? 0);
+        h.Add(storePage); h.Add(infoItem); h.Add(infoSize); h.Add(numpadMax); h.Add(numpadText); h.Add(statusUntil > Game1.ticks); h.Add(Game1.player?.Money ?? 0);
         if (!Context.IsWorldReady) return h.ToHashCode();
         var items = Game1.player.Items;
         for (int i = 0; i < items.Count; i++)
@@ -131,13 +133,13 @@ public class Panels
                 foreach (var slot in note.ingredientSlots) h.Add(slot.item != null);
                 break;
             case Tab.Shipped when Game1.activeClickableMenu is ShippingMenu sm:
-                h.Add(helper.Reflection.GetField<int>(sm, "introTimer").GetValue() <= 0);
+                h.Add(helper.Reflection.GetField<int>(sm, "introTimer").GetValue() <= 0); h.Add(helper.Reflection.GetField<bool>(sm, "outro").GetValue());
                 break;
             case Tab.LevelUp when Game1.activeClickableMenu is LevelUpMenu lu:
                 h.Add(lu.isProfessionChooser); h.Add(lu.informationUp);
                 break;
             case Tab.Choices when Game1.activeClickableMenu is DialogueBox d:
-                h.Add(d.responses.Length); h.Add(d.characterIndexInDialogue);
+                h.Add(d.responses.Length); h.Add(d.characterIndexInDialogue); h.Add(d.selectedResponse);
                 break;
         }
         return h.ToHashCode();
@@ -195,6 +197,11 @@ public class Panels
             case Android.Views.MotionEventActions.Move when headerTouch:
                 scrollingTabs |= Math.Abs(x - scrollStartX) > 12;
                 if (scrollingTabs) tabScroll = Math.Clamp(scrollStartValue - (x - scrollStartX), 0, MaxTabScroll);
+                break;
+            case Android.Views.MotionEventActions.Down when InfoOpen:
+                listStartY = y; listStartValue = gridScroll;
+                listTouch = true; scrollingList = headerTouch = scrollingTabs = pressDown = dragging = false;
+                dragFrom = -1;
                 break;
             case Android.Views.MotionEventActions.Down when Showing is Tab.Craft or Tab.Shop or Tab.People && ListView.Contains(x, y - ContentShift):
                 listStartY = y; listStartValue = gridScroll;
@@ -258,6 +265,7 @@ public class Panels
         if (!Context.IsWorldReady && Game1.activeClickableMenu is TitleMenu tm) { TapTitle(tm, x, y); return; }
         if (Idle) { if (CanSkipEvent && BigSkip.Contains(x, y)) SkipEvent(); return; }
         if (numpadMax > 0) { TapNumpad(x, y - ContentShift); return; }
+        if (InfoOpen && !(HeaderShown && y < TabH)) { infoItem = null; gridScroll = 0; return; }
         if (HeaderShown && y < TabH)
         {
             int i = (x + tabScroll - TabGap) / (TabW + TabGap);
@@ -314,6 +322,7 @@ public class Panels
                     Item(b, held, dragAt.X - 32, dragAt.Y - ContentShift - 32, 64);
             }
             if (numpadMax > 0) DrawNumpad(b);
+            if (InfoOpen) DrawInfo(b);
             b.End();
             b.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp);
         }
@@ -1090,18 +1099,33 @@ public class Panels
         b.Draw(Game1.mouseCursors, new Vector2(0, top + h - 64), new Rectangle(0, 737, 639, 32), new Color(30, 62, 50), 0, Vector2.Zero, 2f, SpriteEffects.None, 0);
         b.Draw(Game1.mouseCursors, new Vector2(80, top + h - 52), new Rectangle(653, 880, 10, 10), Color.White, 0, Vector2.Zero, 2f, SpriteEffects.None, 0);
 
-        StardewValley.BellsAndWhistles.SpriteText.drawStringWithScrollCenteredAt(b, Utility.getDateString(), w / 2, top + 60);
-        int total = helper.Reflection.GetField<List<int>>(menu, "categoryTotals").GetValue().LastOrDefault();
-        StardewValley.BellsAndWhistles.SpriteText.drawStringHorizontallyCenteredAt(b, $"{Utility.getNumberWithCommas(total)}g", w / 2, top + 180,
-            999999, -1, 999999, 1f, 0.88f, false, StardewValley.BellsAndWhistles.SpriteText.color_White);
-
-        bool ready = helper.Reflection.GetField<int>(menu, "introTimer").GetValue() <= 0 && menu.currentPage == -1;
-        DrawBigButton(b, BigContinue, "Continue", ready);
+        var r = helper.Reflection;
+        bool outro = r.GetField<bool>(menu, "outro").GetValue();
+        string date = r.GetField<bool>(menu, "newDayPlaque").GetValue() ? Utility.getDateString() : Utility.getYesterdaysDate();
+        if (!outro)
+        {
+            StardewValley.BellsAndWhistles.SpriteText.drawStringWithScrollCenteredAt(b, date, w / 2, top + 60);
+            int total = r.GetField<List<int>>(menu, "categoryTotals").GetValue().LastOrDefault();
+            StardewValley.BellsAndWhistles.SpriteText.drawStringHorizontallyCenteredAt(b, $"{Utility.getNumberWithCommas(total)}g", w / 2, top + 180,
+                999999, -1, 999999, 1f, 0.88f, false, StardewValley.BellsAndWhistles.SpriteText.color_White);
+            bool ready = r.GetField<int>(menu, "introTimer").GetValue() <= 0 && menu.currentPage == -1;
+            DrawBigButton(b, BigContinue, "Continue", ready);
+            return;
+        }
+        // Same outro as the top: fade out, the date slides to the middle and turns over, then black.
+        float fade = 1f - r.GetField<int>(menu, "outroFadeTimer").GetValue() / 800f;
+        b.Draw(Game1.staminaRect, new Rectangle(0, top, w, h), Color.Black * Math.Clamp(fade, 0, 1));
+        int from = Math.Max(menu.categories[0].bounds.Y - 128, -64), to = r.GetField<int>(menu, "centerY").GetValue() - 64;
+        float p = to > from ? Math.Clamp((r.GetField<int>(menu, "dayPlaqueY").GetValue() - from) / (float)(to - from), 0, 1) : 1;
+        StardewValley.BellsAndWhistles.SpriteText.drawStringWithScrollCenteredAt(b, date, w / 2, top + 60 + (int)(p * (h / 2 - 92)));
+        int final = r.GetField<int>(menu, "finalOutroTimer").GetValue();
+        if (final > 0) b.Draw(Game1.staminaRect, new Rectangle(0, top, w, h), Color.Black * (1f - final / 2000f));
     }
 
     /// <summary>A large game-style button with the game's bitmap font, centred label.</summary>
     static void DrawBigButton(SpriteBatch b, Rectangle r, string label, bool enabled)
     {
+        if (enabled) r.Y += (int)Math.Round(Math.Sin(Game1.ticks / 12.0) * 6);
         IClickableMenu.drawTextureBox(b, Game1.mouseCursors, new Rectangle(432, 439, 9, 9), r.X, r.Y, r.Width, r.Height, enabled ? Color.White : Color.Gray, 4f, false);
         int tw = StardewValley.BellsAndWhistles.SpriteText.getWidthOfString(label);
         StardewValley.BellsAndWhistles.SpriteText.drawString(b, label, r.Center.X - tw / 2, r.Center.Y - 22, 999999, -1, 999999, enabled ? 1f : 0.5f);
@@ -1391,9 +1415,10 @@ public class Panels
         Text(b, CurrentStatus ?? "Tops up stacks in chests", new Vector2(StackRect.X + 80, StackRect.Y + 38), Faint);
 
         // Item card: what you're holding.
-        Card(b, 8, 354, 604, 174);
+        Card(b, BagCard.X, BagCard.Y, BagCard.Width, BagCard.Height);
         var cur = Game1.player.CurrentItem;
         if (cur == null) { Text(b, "Tap to hold. Drag to move, or onto the trash that appears.", new Vector2(22, 368), Faint); return; }
+        DrawMoreHint(b, BagCard);
         SlotFrame(b, 22, 368, 64);
         Item(b, cur, 22, 368, 64);
         Text(b, cur.DisplayName, new Vector2(98, 370));
@@ -1407,6 +1432,94 @@ public class Panels
     }
 
     static Item chest;
+    static readonly Rectangle BagCard = new(8, 354, 604, 174);
+
+    // ---------- Item info: the game's own tooltip, so mods that add lines to it show here too ----------
+
+    Item infoItem;
+    Tab? infoTab;
+    Point infoSize;
+    bool infoDirty;
+    RenderTarget2D infoTarget;
+    Color[] infoPixels;
+    static readonly Rectangle InfoView = new(8, 58, 604, 470);
+
+    bool InfoOpen => infoItem != null && Showing == infoTab;
+
+
+    void ShowInfo(Item item)
+    {
+        infoItem = item; infoTab = Showing; infoDirty = true; gridScroll = 0;
+        Game1.playSound("bigSelect");
+    }
+
+    static void DrawMoreHint(SpriteBatch b, Rectangle card) =>
+        Text(b, "Tap for more", new Vector2(card.Right - 14 - Game1.smallFont.MeasureString("Tap for more").X, card.Y + 14), Faint);
+
+    /// <summary>Renders the tooltip offscreen once per open, before the panel's target is bound
+    /// (switching targets mid-frame would wipe it), and measures it so it can scroll.</summary>
+    public void PrepareOffscreen(GraphicsDevice gd, SpriteBatch batch)
+    {
+        if (!InfoOpen || !infoDirty) return;
+        infoDirty = false;
+        infoTarget ??= new RenderTarget2D(gd, ModEntry.W, 1200);
+        infoPixels ??= new Color[ModEntry.W * 1200];
+        gd.SetRenderTarget(infoTarget);
+        gd.Clear(Color.Transparent);
+        batch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp);
+        try { DrawToolTip(batch, infoItem); }
+        finally { batch.End(); }
+        gd.SetRenderTarget(null);
+        infoTarget.GetData(infoPixels);
+        int w = 0, h = 0;
+        for (int y = 0; y < 1200; y++)
+            for (int x = 0; x < ModEntry.W; x++)
+                if (infoPixels[y * ModEntry.W + x].A > 0) { if (x >= w) w = x + 1; h = y + 1; }
+        infoSize = new Point(w, h);
+    }
+
+    /// <summary>IClickableMenu.drawToolTip, placed at the corner instead of by the mouse.</summary>
+    static void DrawToolTip(SpriteBatch b, Item item)
+    {
+        bool edible = item is SObject o && o.edibility.Value != -300;
+        string[] buffs = null;
+        if (edible && Game1.objectData.TryGetValue(item.ItemId, out var data))
+        {
+            var effects = new StardewValley.Buffs.BuffEffects();
+            int duration = int.MinValue;
+            foreach (var buff in SObject.TryCreateBuffsFromData(data, item.Name, item.DisplayName, 1f, item.ModifyItemBuffs))
+            {
+                effects.Add(buff.effects);
+                if (buff.millisecondsDuration == -2 || (buff.millisecondsDuration > duration && duration != -2)) duration = buff.millisecondsDuration;
+            }
+            if (effects.HasAnyValue())
+            {
+                buffs = effects.ToLegacyAttributeFormat();
+                if (duration != -2) buffs[12] = " " + Utility.getMinutesSecondsStringFromMilliseconds(duration);
+            }
+        }
+        IClickableMenu.drawHoverText(b, WideText(item.getDescription()), Game1.smallFont, 0, 0, -1, item.DisplayName,
+            edible ? ((SObject)item).edibility.Value : -1, buffs, item, overrideX: 0, overrideY: 0);
+    }
+
+    /// <summary>Re-wraps the description to the panel's width and pads its first line, since the game
+    /// sizes the tooltip (title band included) to its widest line.</summary>
+    static string WideText(string text)
+    {
+        const int width = 548;
+        var font = Game1.smallFont;
+        var lines = Game1.parseText(text.Replace('\n', ' '), font, width).Split('\n');
+        while (font.MeasureString(lines[0] + " ").X <= width) lines[0] += " ";
+        return string.Join('\n', lines);
+    }
+
+    void DrawInfo(SpriteBatch b)
+    {
+        b.Draw(Game1.staminaRect, new Rectangle(0, InfoView.Y - 8, ModEntry.W, ModEntry.H), Paper);
+        if (infoTarget == null || infoSize.X == 0) return;
+        DrawScrolled(b, InfoView, () => b.Draw(infoTarget,
+            new Vector2((ModEntry.W - infoSize.X) / 2, InfoView.Y + 8 - gridScroll), new Rectangle(0, 0, infoSize.X, infoSize.Y), Color.White));
+    }
 
     /// <summary>Drag overlay: dims the panel and shows the trash can, lid tipping open when the item is over it.</summary>
     void DrawTrashOverlay(SpriteBatch b)
@@ -1495,6 +1608,7 @@ public class Panels
         if (Storage is InventoryMenu store) { TapStorage(store, x, y); return; }
         if (Game1.activeClickableMenu is MenuWithInventory) { TapMenuBag(x, y); return; }
         if (StackRect.Contains(x, y) && OpenInventory == null) { QuickStack(); return; }
+        if (BagCard.Contains(x, y) && OpenInventory == null && Game1.player.CurrentItem is Item held) { ShowInfo(held); return; }
         int i = BagSlotAt(x, y);
         if (i < 0) return;
 
@@ -1535,7 +1649,8 @@ public class Panels
 
     int GridCount => Showing == Tab.Shop && Game1.activeClickableMenu is ShopMenu shop ? shop.forSale.Count : recipes.Count;
 
-    int MaxGridScroll => Showing == Tab.People
+    int MaxGridScroll => InfoOpen ? Math.Max(0, infoSize.Y + 16 - InfoView.Height)
+        : Showing == Tab.People
         ? Math.Max(0, People().Count * PeopleRowH - PeopleView.Height)
         : Math.Max(0, (GridCount + RecipeCols - 1) / RecipeCols * RecipeStep - GridView.Height);
 
@@ -1707,19 +1822,46 @@ public class Panels
 
     // ---------- Choices (question dialogue on top) ----------
 
-    const int ChoiceH = 78;
-    static Rectangle ChoiceRect(int i) => new(8, 58 + i * ChoiceH, 604, ChoiceH - 6);
+    // The dialogue box frame, in screen coordinates: room for its 44px left and 28-32px other borders.
+    static readonly Rectangle ChoiceBox = new(48, 36, ModEntry.W - 48 - 32, ModEntry.H - 36 - 40);
+
+    /// <summary>Answer rows split the box evenly (tall targets for two or three answers, still fits six).</summary>
+    static Rectangle ChoiceRect(DialogueBox d, int i)
+    {
+        int n = Math.Min(d.responses.Length, 6), rowH = Math.Min(140, (ChoiceBox.Height - 16) / n);
+        int y0 = ChoiceBox.Y + (ChoiceBox.Height - rowH * n) / 2 - ContentShift;
+        return new(ChoiceBox.X + 4, y0 + i * rowH + 4, ChoiceBox.Width - 8, rowH - 8);
+    }
 
     void DrawChoices(SpriteBatch b)
     {
         var d = (DialogueBox)Game1.activeClickableMenu;
+        var box = ChoiceBox; box.Y -= ContentShift;
+        DialogueFrame(b, box);
         for (int i = 0; i < Math.Min(d.responses.Length, 6); i++)
         {
-            var r = ChoiceRect(i);
-            Card(b, r.X, r.Y, r.Width, r.Height);
-            float y = r.Y + (d.responses[i].responseText.Length > 40 ? 12 : 24);
-            Wrapped(b, d.responses[i].responseText, r.X + 20, ref y, r.Width - 40, Ink, 2);
+            var r = ChoiceRect(d, i);
+            if (i == d.selectedResponse)
+                IClickableMenu.drawTextureBox(b, Game1.mouseCursors, new Rectangle(375, 357, 3, 3), r.X, r.Y, r.Width, r.Height, Color.White, 4f, false);
+            string text = d.responses[i].responseText;
+            int th = StardewValley.BellsAndWhistles.SpriteText.getHeightOfString(text, r.Width - 24);
+            StardewValley.BellsAndWhistles.SpriteText.drawString(b, text, r.X + 12, r.Center.Y - th / 2 + 4, 999999, r.Width - 24, 999999, i == d.selectedResponse ? 1f : 0.6f);
         }
+    }
+
+    /// <summary>DialogueBox.drawBox's frame, without its transition gate.</summary>
+    static void DialogueFrame(SpriteBatch b, Rectangle r)
+    {
+        var c = Game1.mouseCursors;
+        b.Draw(c, r, new Rectangle(306, 320, 16, 16), Color.White);
+        b.Draw(c, new Rectangle(r.X, r.Y - 20, r.Width, 24), new Rectangle(275, 313, 1, 6), Color.White);
+        b.Draw(c, new Rectangle(r.X + 12, r.Bottom, r.Width - 20, 32), new Rectangle(275, 328, 1, 8), Color.White);
+        b.Draw(c, new Rectangle(r.X - 32, r.Y + 24, 32, r.Height - 28), new Rectangle(264, 325, 8, 1), Color.White);
+        b.Draw(c, new Rectangle(r.Right, r.Y, 28, r.Height), new Rectangle(293, 324, 7, 1), Color.White);
+        b.Draw(c, new Vector2(r.X - 44, r.Y - 28), new Rectangle(261, 311, 14, 13), Color.White, 0, Vector2.Zero, 4f, SpriteEffects.None, 0);
+        b.Draw(c, new Vector2(r.Right - 8, r.Y - 28), new Rectangle(291, 311, 12, 11), Color.White, 0, Vector2.Zero, 4f, SpriteEffects.None, 0);
+        b.Draw(c, new Vector2(r.Right - 8, r.Bottom - 8), new Rectangle(291, 326, 12, 12), Color.White, 0, Vector2.Zero, 4f, SpriteEffects.None, 0);
+        b.Draw(c, new Vector2(r.X - 44, r.Bottom - 4), new Rectangle(261, 327, 14, 11), Color.White, 0, Vector2.Zero, 4f, SpriteEffects.None, 0);
     }
 
     static void TapChoices(int x, int y)
@@ -1727,7 +1869,7 @@ public class Panels
         var d = (DialogueBox)Game1.activeClickableMenu;
         for (int i = 0; i < Math.Min(d.responses.Length, 6); i++)
         {
-            if (!ChoiceRect(i).Contains(x, y)) continue;
+            if (!ChoiceRect(d, i).Contains(x, y)) continue;
             // Same as clicking the answer on top: first click finishes the typing, the next one answers.
             if (d.characterIndexInDialogue < d.getCurrentString().Length - 1) { d.receiveLeftClick(0, 0); return; }
             d.selectedResponse = i;
@@ -1748,6 +1890,7 @@ public class Panels
     static Rectangle PickMax(int top) => new(500, top + 8, 100, 52);
     static Rectangle PickButton(int top) => new(296, top + 66, 304, 58);
     const int ShopPickTop = 262, BinPickTop = 92;
+    static readonly Rectangle ShopInfoRect = new(8, 262, 260, 132);
     static Rectangle PickRegion(int top) => new(290, top, 320, 130);
     static readonly Rectangle[] BuyRects = { new(272, 330, 106, 56), new(384, 330, 106, 56), new(496, 330, 106, 56) };
     static readonly int[] BuyCounts = { 1, 5, 25 };
@@ -1782,7 +1925,8 @@ public class Panels
             if (stock.Stock != int.MaxValue) Text(b, $"{stock.Stock} left", new Vector2(182, 298), Faint);
             // The description the top screen shows in its tooltip, beside the Buy buttons.
             float dy = 330;
-            Wrapped(b, shopPick.getDescription().Replace('\n', ' '), 22, ref dy, 244, Faint, 2);
+            Wrapped(b, shopPick.getDescription().Replace('\n', ' '), 22, ref dy, 244, Faint, 1);
+            if (shopPick is Item) Text(b, "Tap for more", new Vector2(22, dy + 2), Faint);
             int money = ShopMenu.getPlayerCurrencyAmount(Game1.player, shop.currency);
             for (int i = 0; i < BuyRects.Length; i++)
             {
@@ -1914,6 +2058,7 @@ public class Panels
             if (TapAmountPicker(selling, ShopPickTop, x, y)) Sell(shop, sellPick, sellAmount);
             return;
         }
+        if (shopPick is Item info && ShopInfoRect.Contains(x, y)) { ShowInfo(info); return; }
         if (shopPick != null)
             for (int i = 0; i < BuyRects.Length; i++)
                 if (BuyRects[i].Contains(x, y)) { Buy(shop, shopPick, BuyCounts[i]); return; }
