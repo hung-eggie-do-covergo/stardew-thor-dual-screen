@@ -86,7 +86,7 @@ During cutscenes the bottom shows the valley with a big **SKIP** sign whenever t
 skipped. Festivals keep your tabs.
 
 Questions with answers (the mine elevator, villagers asking you something) appear in the game's
-dialogue box, each answer a tall row; the highlight follows the top screen.
+dialogue box across the full width, laid out like the game's own; the highlight follows the top screen.
 Everything here goes through the game's own menus, so prices, rules and sounds are exactly the
 game's.
 

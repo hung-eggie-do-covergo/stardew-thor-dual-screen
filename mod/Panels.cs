@@ -1822,23 +1822,30 @@ public class Panels
 
     // ---------- Choices (question dialogue on top) ----------
 
-    // The dialogue box frame, in screen coordinates: room for its 44px left and 28-32px other borders.
-    static readonly Rectangle ChoiceBox = new(48, 36, ModEntry.W - 48 - 32, ModEntry.H - 36 - 40);
+    // The dialogue box, laid out like the game's (rows sized to their text), across the full width.
+    // Screen coordinates: room for the frame's 44px left and 28-32px other borders.
+    const int ChoiceX = 48, ChoiceTop = 36, ChoiceW = ModEntry.W - 48 - 32, ChoiceMaxH = ModEntry.H - 36 - 40;
 
-    /// <summary>Answer rows split the box evenly (tall targets for two or three answers, still fits six).</summary>
+    static int ChoiceRowH(DialogueBox d, int i) =>
+        Math.Max(72, StardewValley.BellsAndWhistles.SpriteText.getHeightOfString(d.responses[i].responseText, ChoiceW - 24) + 24);
+
+    /// <summary>Answer row i in content coordinates; rows shrink evenly if six long answers won't fit.</summary>
     static Rectangle ChoiceRect(DialogueBox d, int i)
     {
-        int n = Math.Min(d.responses.Length, 6), rowH = Math.Min(140, (ChoiceBox.Height - 16) / n);
-        int y0 = ChoiceBox.Y + (ChoiceBox.Height - rowH * n) / 2 - ContentShift;
-        return new(ChoiceBox.X + 4, y0 + i * rowH + 4, ChoiceBox.Width - 8, rowH - 8);
+        int n = Math.Min(d.responses.Length, 6), total = 0, y = ChoiceTop + 12 - ContentShift;
+        for (int k = 0; k < n; k++) total += ChoiceRowH(d, k);
+        float fit = Math.Min(1f, (ChoiceMaxH - 24) / (float)total);
+        for (int k = 0; k < i; k++) y += (int)(ChoiceRowH(d, k) * fit);
+        return new(ChoiceX + 4, y, ChoiceW - 8, (int)(ChoiceRowH(d, i) * fit));
     }
 
     void DrawChoices(SpriteBatch b)
     {
         var d = (DialogueBox)Game1.activeClickableMenu;
-        var box = ChoiceBox; box.Y -= ContentShift;
-        DialogueFrame(b, box);
-        for (int i = 0; i < Math.Min(d.responses.Length, 6); i++)
+        int n = Math.Min(d.responses.Length, 6);
+        var last = ChoiceRect(d, n - 1);
+        DialogueFrame(b, new Rectangle(ChoiceX, ChoiceTop - ContentShift, ChoiceW, last.Bottom + 12 - (ChoiceTop - ContentShift)));
+        for (int i = 0; i < n; i++)
         {
             var r = ChoiceRect(d, i);
             if (i == d.selectedResponse)
