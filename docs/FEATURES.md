@@ -77,7 +77,7 @@ number on a pad. In a chest, hold a slot to move part of a stack.
 
 Also covered: **Community Center bundles** (pick a bundle, then tap items to give them; ones it
 can't use are greyed out), **the museum, forge and sewing machine** (items the menu won't take are
-greyed out), and **end of day** (the top screen's night scene with the day's date and total, the
+greyed out), and **end of day** (the top screen's night scene with the day's date and its Total row (box, dial and coin, counting up in step), the
 Level Up banner, and one big Continue or two big profession buttons; after Continue the date slides
 down and turns over in step with the top screen). While a menu takes over, the
 tab strip hides.

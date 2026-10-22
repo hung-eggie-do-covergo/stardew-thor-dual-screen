@@ -5,6 +5,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using StardewModdingAPI;
 using StardewValley;
+using StardewValley.BellsAndWhistles;
 using StardewValley.Locations;
 using StardewValley.Menus;
 using StardewValley.TerrainFeatures;
@@ -1105,10 +1106,11 @@ public class Panels
         if (!outro)
         {
             StardewValley.BellsAndWhistles.SpriteText.drawStringWithScrollCenteredAt(b, date, w / 2, top + 60);
-            int total = r.GetField<List<int>>(menu, "categoryTotals").GetValue().LastOrDefault();
-            StardewValley.BellsAndWhistles.SpriteText.drawStringHorizontallyCenteredAt(b, $"{Utility.getNumberWithCommas(total)}g", w / 2, top + 180,
-                999999, -1, 999999, 1f, 0.88f, false, StardewValley.BellsAndWhistles.SpriteText.color_White);
-            bool ready = r.GetField<int>(menu, "introTimer").GetValue() <= 0 && menu.currentPage == -1;
+            int intro = r.GetField<int>(menu, "introTimer").GetValue();
+            // The top screen's Total row, appearing when the top's does (rows come in 500 ms apart).
+            int last = menu.categories.Count - 1;
+            if (last >= 0 && intro < 2500 - last * 500) DrawShippedTotal(b, menu, top + 170);
+            bool ready = intro <= 0 && menu.currentPage == -1;
             DrawBigButton(b, BigContinue, "Continue", ready);
             return;
         }
@@ -1120,6 +1122,24 @@ public class Panels
         StardewValley.BellsAndWhistles.SpriteText.drawStringWithScrollCenteredAt(b, date, w / 2, top + 60 + (int)(p * (h / 2 - 92)));
         int final = r.GetField<int>(menu, "finalOutroTimer").GetValue();
         if (final > 0) b.Draw(Game1.staminaRect, new Rectangle(0, top, w, h), Color.Black * (1f - final / 2000f));
+    }
+
+    MoneyDial totalDial;
+
+    /// <summary>The top screen's Total row at its own size: label box, dial and coin. The dial copies the
+    /// top's value each frame, so it counts up in step without playing its sound twice.</summary>
+    void DrawShippedTotal(SpriteBatch b, ShippingMenu menu, int y)
+    {
+        int last = menu.categories.Count - 1, x = (ModEntry.W - 512) / 2;
+        var gameDial = helper.Reflection.GetField<List<MoneyDial>>(menu, "categoryDials").GetValue()[last];
+        totalDial ??= new MoneyDial(7, false);
+        totalDial.currentValue = gameDial.currentValue;
+        IClickableMenu.drawTextureBox(b, Game1.mouseCursors, new Rectangle(384, 373, 18, 18), x, y - 20, 512, 104, Color.White, 4f, false);
+        StardewValley.BellsAndWhistles.SpriteText.drawString(b, menu.categories[last].hoverText, x + 20, y + 4);
+        for (int n = 0; n < 6; n++)
+            b.Draw(Game1.mouseCursors, new Vector2(x + 308 + n * 24, y + 12), new Rectangle(355, 476, 7, 11), Color.White, 0, Vector2.Zero, 4f, SpriteEffects.None, 0);
+        totalDial.draw(b, new Vector2(x + 288, y + 20), gameDial.currentValue);
+        b.Draw(Game1.mouseCursors, new Vector2(x + 456, y + 12), new Rectangle(408, 476, 9, 11), Color.White, 0, Vector2.Zero, 4f, SpriteEffects.None, 0);
     }
 
     /// <summary>A large game-style button with the game's bitmap font, centred label.</summary>
